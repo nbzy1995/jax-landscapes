@@ -2,7 +2,6 @@ import pytest
 import jax.numpy as jnp
 from jax_md import space
 import json
-import os
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -17,77 +16,53 @@ def load_test_data(filename):
     return {
         'R': jnp.array(data['xyz']),
         'box': jnp.array(data['box']),
-        'energy': data['Etot']
+        'energy': data['Etot'],
+        'grad': jnp.array(data['grad_E'])
     }
 
 
-@pytest.fixture
-def n6_test_data():
-    """Load N6 test data."""
-    return load_test_data('tests/test_data/aziz1995-N6-Nbeads1.json')
+@pytest.mark.parametrize("data_file", [
+    'tests/test_data/aziz1995-N6-Nbeads1.json',
+    'tests/test_data/aziz1995-N500-Nbeads1.json'
+])
+def test_energy_grad(data_file):
+    """
+    Test energy and grad given coordinates xyz, with or without neighborlist, to verify they match reference data.
+    """
+    test_data = load_test_data(data_file)
+    R = test_data['R']
+    box_size = test_data['box']
+    expected_energy = test_data['energy']
+    expected_grad = test_data['grad']
 
-
-@pytest.fixture
-def n500_test_data():
-    """Load N500 test data."""
-    return load_test_data('tests/test_data/aziz1995-N500-Nbeads1.json')
-
-
-class TestAziz1995Energy:
-    """Test class for Aziz 1995 potential energy calculations."""
+    print(f"\nTesting with {R.shape[0]} particles in a box of size {box_size}:\n")
+    displacement, _ = space.periodic(box_size)
     
-    def test_print_energy_values_n6(self, n6_test_data):
-        """Print energy values to verify they match reference data for N6."""
-        R = n6_test_data['R']
-        box_size = n6_test_data['box']
-        expected_energy = n6_test_data['energy']
-        
-        displacement, shift = space.periodic(box_size)
-        
-        # Energy without neighbor list
-        energy_fn_no_nl = total_energy_aziz_1995_no_nl(displacement)
-        energy_no_nl = energy_fn_no_nl(R)
-        
-        # Energy with neighbor list
-        neighbor_fn, energy_fn_nl = total_energy_aziz_1995_neighbor_list(displacement, box_size)
-        nbrs = neighbor_fn.allocate(R)
-        energy_nl = energy_fn_nl(R, neighbor=nbrs)
-        
-        print(f"\nN6 System Energy Comparison:")
-        print(f"Reference energy: {expected_energy}")
-        print(f"Energy (no neighbor list): {energy_no_nl}")
-        print(f"Energy (with neighbor list): {energy_nl}")
-        print(f"Difference from reference (no NL): {abs(energy_no_nl - expected_energy)}")
-        print(f"Difference from reference (with NL): {abs(energy_nl - expected_energy)}")
-        
-        # Verify they match reference data
-        assert jnp.isclose(energy_no_nl, expected_energy, rtol=1e-10)
-        assert jnp.isclose(energy_nl, expected_energy, rtol=1e-10)
+    # Energy without neighbor list
+    energy_fn_no_nl = total_energy_aziz_1995_no_nl(displacement)
+    energy_no_nl = energy_fn_no_nl(R)
+    grad_no_nl = jax.grad(energy_fn_no_nl)(R)
     
-    def test_print_energy_values_n500(self, n500_test_data):
-        """Print energy values to verify they match reference data for N500."""
-        R = n500_test_data['R']
-        box_size = n500_test_data['box']
-        expected_energy = n500_test_data['energy']
-        
-        displacement, shift = space.periodic(box_size)
-        
-        # Energy without neighbor list
-        energy_fn_no_nl = total_energy_aziz_1995_no_nl(displacement)
-        energy_no_nl = energy_fn_no_nl(R)
-        
-        # Energy with neighbor list
-        neighbor_fn, energy_fn_nl = total_energy_aziz_1995_neighbor_list(displacement, box_size)
-        nbrs = neighbor_fn.allocate(R)
-        energy_nl = energy_fn_nl(R, neighbor=nbrs)
-        
-        print(f"\nN500 System Energy Comparison:")
-        print(f"Reference energy: {expected_energy}")
-        print(f"Energy (no neighbor list): {energy_no_nl}")
-        print(f"Energy (with neighbor list): {energy_nl}")
-        print(f"Difference from reference (no NL): {abs(energy_no_nl - expected_energy)}")
-        print(f"Difference from reference (with NL): {abs(energy_nl - expected_energy)}")
-        
-        # Verify they match reference data
-        assert jnp.isclose(energy_no_nl, expected_energy, rtol=1e-10)
-        assert jnp.isclose(energy_nl, expected_energy, rtol=1e-10)
+    # Energy with neighbor list
+    neighbor_fn, energy_fn_nl = total_energy_aziz_1995_neighbor_list(displacement, box_size)
+    nbrs = neighbor_fn.allocate(R)
+    energy_nl = energy_fn_nl(R, neighbor=nbrs)
+    grad_nl = jax.grad(energy_fn_nl, argnums=0)(R, neighbor=nbrs)
+
+    print(f"\nTotal Energy:")
+    print(f"Reference energy: {expected_energy}")
+    print(f"Energy (no neighbor list): {energy_no_nl}")
+    print(f"Energy (with neighbor list): {energy_nl}")
+    print(f"Difference from reference (no NL): {abs(energy_no_nl - expected_energy)}")
+    print(f"Difference from reference (with NL): {abs(energy_nl - expected_energy)}")
+    
+    # Verify they match reference data
+    assert jnp.isclose(energy_no_nl, expected_energy, rtol=1e-10)
+    assert jnp.isclose(energy_nl, expected_energy, rtol=1e-10)
+
+    print(f"\nGradients:")
+    print(f"Max difference of components (no neighbor list): {abs(grad_no_nl - expected_grad).max()}")
+    print(f"Max difference of components (with neighbor list): {abs(grad_nl - expected_grad).max()}")
+
+    assert jnp.allclose(grad_no_nl, expected_grad, rtol=1e-10)
+    assert jnp.allclose(grad_nl, expected_grad, rtol=1e-10)

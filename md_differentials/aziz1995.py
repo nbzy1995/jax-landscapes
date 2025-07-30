@@ -62,7 +62,7 @@ def aziz_1995(r, **kwargs):
 def total_energy_aziz_1995_no_nl(
     displacement_or_metric,
     r_cutoff=1.36, 
-    r_sw=1.36,
+    r_sw=1.36*0.9,
     **kwargs): 
 
     r_cutoff = jnp.array(r_cutoff) 
@@ -80,7 +80,7 @@ def total_energy_aziz_1995_neighbor_list(
     displacement_or_metric,
     box_size,
     r_cutoff=1.36, 
-    r_sw=1.36,         # switching distance
+    r_sw=1.36*0.9,  # switching distance
     dr_threshold=0.5,  # buffer size for neighbor list
     format=partition.OrderedSparse,
     **kwargs): 

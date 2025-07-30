@@ -58,8 +58,8 @@ def aziz_1995(r, **kwargs):
 
 
 # -----------
-# Total energy function without neighbor list
-def total_energy_aziz_1995_no_nl(
+# factory for energy function without neighbor list
+def build_energy_fn_aziz_1995_no_neighborlist(
     displacement_or_metric,
     r_cutoff=1.36, 
     r_sw=1.36*0.9,
@@ -75,8 +75,8 @@ def total_energy_aziz_1995_no_nl(
     return energy_fn
 
 
-# Total energy function with neighbor list
-def total_energy_aziz_1995_neighbor_list(
+# factory for energy function with neighbor list
+def build_energy_fn_aziz_1995_neighborlist(
     displacement_or_metric,
     box_size,
     r_cutoff=1.36, 

@@ -1,11 +1,12 @@
 import jax.numpy as jnp
 from jax_md import smap, space
-from md_differentials.aziz1995 import total_energy_aziz_1995_neighbor_list, total_energy_aziz_1995_no_nl
+from jax_landscape.energy_fun import build_energy_fn_aziz_1995_neighborlist, build_energy_fn_aziz_1995_no_neighborlist
 import json
 import argparse
 
 import jax
 jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_default_dtype_bits", "64")
 
 # TODO: read command line arguments, including:
 # 
@@ -15,8 +16,8 @@ jax.config.update("jax_enable_x64", True)
 # number of beads
 # mode: energy, pressure, hessian, or minimization.
 
-
 # Print the commands with arguments read.
+# each command leads to a functionallity of the package
 
 
 def load_test_data(filename):
@@ -26,7 +27,8 @@ def load_test_data(filename):
     return {
         'R': jnp.array(data['xyz']),
         'box': jnp.array(data['box']),
-        'energy': data['Etot']
+        'energy': data['Etot'],
+        'grad': jnp.array(data['grad_E'])
     }
 
 
@@ -51,22 +53,22 @@ def main():
     box_size = test_data['box']
     Etot = test_data['energy']
 
-    displacement, shift = space.periodic(box_size)
+    displacement, _ = space.periodic(box_size)
 
     # Calculate the energy using the Aziz 1995 potential
     if args.mode in ['energy_no_neighbor_list', 'all']:
-        energy_fn = total_energy_aziz_1995_no_nl(displacement)
+        energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement)
         energy = energy_fn(R)
         print(f"Energy (no neighbor list): {energy}")
 
     if args.mode in ['energy', 'all']:
-        neighbor_fn, energy_fn = total_energy_aziz_1995_neighbor_list(displacement, box_size)
+        neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement, box_size)
         nbrs = neighbor_fn.allocate(R)
         energy = energy_fn(R, neighbor=nbrs)
         print(f"Energy (with neighbor list): {energy}")
     
     print(f"Reference data total energy: {Etot}")
 
+
 if __name__ == "__main__":
     main()
-

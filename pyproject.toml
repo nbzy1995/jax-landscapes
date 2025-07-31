@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jax-landscape"
+version = "0.1.0"
+description = "JAX-based energy landscape analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "jax",
+    "jaxlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov",
+    "pytest-xdist",  # for parallel testing
+    "black",         # code formatting
+    "isort",         # import sorting
+    "flake8",        # linting
+    "mypy",          # type checking
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"

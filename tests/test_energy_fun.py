@@ -15,10 +15,10 @@ def load_test_data(filename):
     with open(filename, 'r') as f:
         data = json.load(f)
     return {
-        'R': jnp.array(data['xyz']),
+        'R': jnp.array(data['xyz']).reshape(-1, 3),
         'box': jnp.array(data['box']),
         'energy': data['E'],
-        'grad': jnp.array(data['grad_E'])
+        'grad': jnp.array(data['grad_E']).reshape(-1, 3)
     }
 
 

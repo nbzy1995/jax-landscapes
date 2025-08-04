@@ -17,7 +17,7 @@ def load_test_data(filename):
     return {
         'R': jnp.array(data['xyz']),
         'box': jnp.array(data['box']),
-        'energy': data['Etot'],
+        'energy': data['E'],
         'grad': jnp.array(data['grad_E'])
     }
 

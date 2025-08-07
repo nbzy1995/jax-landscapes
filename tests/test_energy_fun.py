@@ -57,15 +57,14 @@ def test_energy_grad(data_file):
     print(f"Relative Difference from reference (no NL)  : {abs(energy_no_nl - expected_energy)/expected_energy}")
     print(f"Relative Difference from reference (with NL): {abs(energy_nl - expected_energy)/expected_energy}")
     print(f"Relative Difference between neighbor, without neighbor: {abs(energy_no_nl - energy_nl)/energy_no_nl}")
-    # assert jnp.isclose(energy_no_nl, expected_energy, rtol=1e-4)
-    # assert jnp.isclose(energy_nl, expected_energy, rtol=1e-4)
+    assert jnp.isclose(energy_no_nl, expected_energy, rtol=1e-8)
+    assert jnp.isclose(energy_nl, expected_energy, rtol=1e-8)
     assert jnp.isclose(energy_no_nl, energy_nl, rtol=1e-8), "Methods should agree with float64"
-    # A small difference might be due to different switching functions in reference data
 
     print(f"\nGradients:")
     print(f"Relative Max components difference from reference (no neighbor list)  : {abs(grad_no_nl - expected_grad).max()/abs(expected_grad).mean()}")
     print(f"Relative Max components difference from reference (with neighbor list): {abs(grad_nl - expected_grad).max()/abs(expected_grad).mean()}")
     print(f"Relative Max components difference between neighbor , without neighbor: {abs(grad_nl - grad_no_nl).max()/abs(grad_no_nl).mean()}")
-    # assert jnp.allclose(grad_no_nl, expected_grad, rtol=1e-4), "Gradients should match reference data"
-    # assert jnp.allclose(grad_nl, expected_grad, rtol=1e-4), "Gradients should match reference data"
+    assert jnp.allclose(grad_no_nl, expected_grad, rtol=1e-8), "Gradients should match reference data"
+    assert jnp.allclose(grad_nl, expected_grad, rtol=1e-8), "Gradients should match reference data"
     assert jnp.allclose(grad_no_nl, grad_nl, rtol=1e-8), "Gradient methods should agree with float64"

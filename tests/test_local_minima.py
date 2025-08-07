@@ -64,13 +64,13 @@ def test_local_minimum_aziz1995(data_file):
     energy_tolerance = 1e-4
     energy_diff = abs(results['energy_final'] - energy_reference)
     assert energy_diff < energy_tolerance, \
-        f"Compared to the reference energy, difference {energy_diff:.2e} exceeds tolerance {energy_tolerance:.2e}"
+        f"Compared to the reference energy, the absolute difference {energy_diff:.2e} exceeds tolerance {energy_tolerance:.2e}"
     
     xyz_final = results['xyz_final']
     max_diff = jnp.max(jnp.abs(xyz_final - xyz_reference))
-    xyz_tolerance = 0.1
+    xyz_tolerance = 0.01
     assert max_diff < xyz_tolerance, \
-        f"Compared to reference xyz, max component difference {max_diff:.6f} exceeds tolerance {xyz_tolerance}"
+        f"Compared to reference xyz, the max component difference {max_diff:.6f} exceeds tolerance {xyz_tolerance}"
 
     print(f"Initial energy: {results['energy_initial']:.8f}")
     print(f"Final energy: {results['energy_final']:.8f}")

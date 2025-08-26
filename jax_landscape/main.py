@@ -20,8 +20,8 @@ jax.config.update("jax_default_dtype_bits", "64")
 # each command leads to a functionallity of the package
 
 
-def load_test_data(filename):
-    """Loads test data from a JSON file."""
+def load_input_data(filename):
+    """Loads input data from a JSON file."""
     with open(filename, 'r') as f:
         data = json.load(f)
     return {
@@ -33,41 +33,41 @@ def load_test_data(filename):
 
 
 def main():
-    """
-    Main function to calculate the energy of a system.
-    """
-    parser = argparse.ArgumentParser(description='Differential Utility for Molecular dynamics simulation.')
-    parser.add_argument('--input_file', type=str, default='tests/test_data/aziz1995-N6-Nbeads1.json',
-                        help='Input file with coordinates and box information.')
-    parser.add_argument('--mode', type=str, default='all',
-                        help='Calculation mode: energy_no_neighbor_list, energy, or all.')
+
+    parser = argparse.ArgumentParser(description='Jax utility for energy landscape analysis.')
+    parser.add_argument('--input_file', type=str, default=None,
+                        help='Input file containing coordinates and box information.')
+    # parser.add_argument('--use_neighbor_list', type=bool, default=True,
+                        # help='Use neighbor list for energy calculation.')
+    parser.add_argument('--run_minimize', type=bool, default=False,
+                        help='Run minimization.')
 
     args = parser.parse_args()
 
     print(f"Input file: {args.input_file}")
-    print(f"Mode: {args.mode}")
+    # if args.use_neighbor_list:
+    #     print("Neighbor list for energy calculation: True")
+    # else:
+    #     print("Neighbor list for energy calculation: False")
+    if args.run_minimize:
+        print("Run minimization: True")
 
-    # Load the input data
-    test_data = load_test_data(args.input_file)
-    R = test_data['R']
-    box_size = test_data['box']
-    Etot = test_data['energy']
+    # Load input data
+    print("Loading input file...")
+    input_data = load_input_data(args.input_file)
+    R = input_data['R']
+    box_size = input_data['box']
+    Etot = input_data['energy']
+    print(f"Done. ")
 
+    # setup geometry
     displacement, _ = space.periodic(box_size)
 
-    # Calculate the energy using the Aziz 1995 potential
-    if args.mode in ['energy_no_neighbor_list', 'all']:
-        energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement)
-        energy = energy_fn(R)
-        print(f"Energy (no neighbor list): {energy}")
+    # Build energy function
+    neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement, box_size)
+    nbrs = neighbor_fn.allocate(R)
+    energy = energy_fn(R, neighbor=nbrs)
 
-    if args.mode in ['energy', 'all']:
-        neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement, box_size)
-        nbrs = neighbor_fn.allocate(R)
-        energy = energy_fn(R, neighbor=nbrs)
-        print(f"Energy (with neighbor list): {energy}")
-    
-    print(f"Reference data total energy: {Etot}")
 
 
 if __name__ == "__main__":

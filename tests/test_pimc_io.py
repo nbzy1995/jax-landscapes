@@ -1,11 +1,10 @@
-import jax.numpy as jnp
 import numpy as np
-from jax_landscape.io.pimc import loadPIMCPaths, Path
+from jax_landscape.io.pimc import load_pimc_worldline_file, Path
 
 
 def test_load_sample_worldline():
-    path = 'tests/test_data/sample_wl.dat'
-    wls = loadPIMCPaths(path, configIdx=0)
+    path = 'tests/test_data/N2-Nbeads3-cycle1.dat'
+    wls = load_pimc_worldline_file(path)
     cfg = Path(wls[0], Lx=10.0, Ly=10.0, Lz=10.0)
     M, N, D = cfg.beadCoord.shape
     assert (M, N, D) == (3, 2, 3)

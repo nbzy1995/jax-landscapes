@@ -11,7 +11,7 @@ import numpy as np
 import jax.numpy as jnp
 
 
-def loadPIMCPaths(fileName: str, configIdx: int) -> Tuple[int, List[List[str]]]:
+def load_pimc_worldline_file(fileName: str) -> Tuple[int, List[List[str]]]:
     """
     Load a pimc output worldline file ("ce-wl-*.dat"), parse and extract a list, each element of which is 
     one worldline path at one MC step, i.e. one PIMC configuration (snapshot).
@@ -137,3 +137,6 @@ class Path:
             # -----------------------------------------------------------------
             # # compute winding of the current worldline
             # W = self.computeWinding(beadCoords)
+
+            # ----
+            # TODO: check that it is indeed closed cycle. throw error if not. This means the wl file has wrong info about closedness. 

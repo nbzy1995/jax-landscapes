@@ -9,8 +9,9 @@ from jax_md import energy, space, smap, partition
 
 
 
-# -----------
+# ---------------------------------
 # The two-body potential function for the Aziz 1995 potential
+# NOTE: the output and input has the specified units.
 AZIZ_PARAMS = {
     'A_star': 1.86924404e5,
     'alpha_star': 10.5717543,
@@ -19,8 +20,8 @@ AZIZ_PARAMS = {
     'c8': 0.41495143,
     'c10': 0.17151143,
     'D': 1.438,
-    'epsilon': 0.0910933,  # kJ/mol
-    'rm': 0.29683,  # nm
+    'epsilon': 10.956,  # [kB K]
+    'rm': 2.9683,  # Angstrom
 }
 
 def aziz_1995(r, **kwargs):
@@ -61,8 +62,8 @@ def aziz_1995(r, **kwargs):
 # factory for energy function without neighbor list
 def build_energy_fn_aziz_1995_no_neighborlist(
     displacement_or_metric,
-    r_cutoff=1.36, 
-    r_sw=1.36*0.9,
+    r_cutoff=13.6, 
+    r_sw=13.6*0.9,
     **kwargs): 
 
     r_cutoff = jnp.array(r_cutoff) 
@@ -79,8 +80,8 @@ def build_energy_fn_aziz_1995_no_neighborlist(
 def build_energy_fn_aziz_1995_neighborlist(
     displacement_or_metric,
     box_size,
-    r_cutoff=1.36, 
-    r_sw=1.36*0.9,  # switching distance
+    r_cutoff=13.6, 
+    r_sw=13.6*0.9,  # switching distance
     dr_threshold=0.5,  # buffer size for neighbor list
     format=partition.OrderedSparse,
     **kwargs): 

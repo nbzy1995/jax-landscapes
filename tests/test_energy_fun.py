@@ -10,6 +10,9 @@ jax.config.update("jax_default_dtype_bits", "64")
 from jax_landscape.energy_fun import build_energy_fn_aziz_1995_neighborlist, build_energy_fn_aziz_1995_no_neighborlist
 
 
+nm_to_Angstrom = 10.0
+KJmol_to_KBK = 120.2722922542  # kJ/mol to kB K
+
 def load_test_data(filename):
     """Loads test data from a JSON file."""
     with open(filename, 'r') as f:
@@ -30,11 +33,13 @@ def test_energy_grad(data_file):
     """
     Test energy and grad given coordinates xyz, with or without neighborlist, to verify they match reference data.
     """
+    # test data is in units of
+    # nm, kJ/mol
     test_data = load_test_data(data_file)
-    R = test_data['R']
-    box_size = test_data['box']
-    expected_energy = test_data['energy']
-    expected_grad = test_data['grad']
+    R = test_data['R'] * nm_to_Angstrom
+    box_size = test_data['box'] * nm_to_Angstrom
+    expected_energy = test_data['energy'] * KJmol_to_KBK
+    expected_grad = test_data['grad'] * (KJmol_to_KBK/nm_to_Angstrom)
 
     print(f"\nTesting with {R.shape[0]} particles in a box of size {box_size}:\n")
     displacement, _ = space.periodic(box_size)

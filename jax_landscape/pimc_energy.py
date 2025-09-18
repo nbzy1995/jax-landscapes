@@ -92,6 +92,7 @@ def _total_potential_term(bead_coords: Array, potential_energy_fn: Callable[[Arr
 
 def build_pimc_energy_fn(displacement_fn: Callable[[Array, Array], Array], potential_energy_fn: Callable[[Array], Array]):
     """Factory producing a energy function U_RP for a single PIMC configuration. This is the weight/beta of the path integral.
+    __NOTE__: Make sure you use the same unit system for potential_energy_fn and the parameters beta, hbar, mass passed to the returned function.
 
     Parameters:
         displacement_fn: JAX-MD displacement function (periodic or free space)
@@ -116,7 +117,9 @@ def build_pimc_energy_fn(displacement_fn: Callable[[Array, Array], Array], poten
         Esp = _total_spring_term(bead_coords, next_indices, beta, hbar, mass, displacement_fn)
         Eint = _total_potential_term(bead_coords, potential_energy_fn)
         Urp = Esp + Eint
-        return {'Urp': Urp, 'E_sp': Esp, 'E_int': Eint} # RP potential energy, spring energy, interaction potential energy.   'E_qm': 0.0, 
+        K = 1.5 * M * N / beta  # kinetic energy of ring polymers
+        Eqm = K - Esp + Eint
+        return {'Urp': Urp, 'E_sp': Esp, 'E_int': Eint,'E_qm': Eqm} # RP potential energy, spring energy, interaction potential energy.   'E_qm': 0.0, 
 
     return pimc_energy_fn
 

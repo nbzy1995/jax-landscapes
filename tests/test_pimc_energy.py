@@ -40,8 +40,8 @@ def test_classical_M1_matches_slice_energy():
 
 
 def test_free_particle_one_cycle():
-    wls = load_pimc_worldline_file('tests/test_data/N2-Nbeads3-cycle1.dat')
-    path = Path(wls[0], Lx=100.0, Ly=100.0, Lz=100.0) 
+    paths_dict = load_pimc_worldline_file('tests/test_data/N2-Nbeads3-cycle1.dat', Lx=100.0, Ly=100.0, Lz=100.0)
+    path = paths_dict[0] 
     M = path.numTimeSlices
 
     beta = 0.5
@@ -66,8 +66,8 @@ def test_free_particle_one_cycle():
     assert res['E_int'] == 0.0
 
 def test_free_particle_two_cycle():
-    wls = load_pimc_worldline_file('tests/test_data/N2-Nbeads3-cycle2.dat')
-    path = Path(wls[0], Lx=100.0, Ly=100.0, Lz=100.0) 
+    paths_dict = load_pimc_worldline_file('tests/test_data/N2-Nbeads3-cycle2.dat', Lx=100.0, Ly=100.0, Lz=100.0)
+    path = paths_dict[0] 
     M = path.numTimeSlices
 
     beta = 0.5
@@ -95,8 +95,7 @@ def test_free_particle_two_cycle():
 
 def test_full_wl():
     wlfile = 'tests/test_data/N64.dat'
-    wls = load_pimc_worldline_file(wlfile)
-    
+
     # All quantity expressed in reduced units relative to the Helium units:
     #  length [L] in Angstrom
     #  energy [E] in kB K
@@ -109,10 +108,11 @@ def test_full_wl():
 
     beta = 1/T # reduced units.
     hbar = 21.8735/(2*np.pi)
-    mass = 1   
+    mass = 1
 
     L = (N/n)**(1/3)  # box length in Angstrom
-    path = Path(wls[0], Lx=L, Ly=L, Lz=L) # coordinates are in Angstrom
+    paths_dict = load_pimc_worldline_file(wlfile, Lx=L, Ly=L, Lz=L)
+    path = paths_dict[0]  # coordinates are in Angstrom
     M = path.numTimeSlices
 
     # Retrieve estimator info computed from Adrian pimc code

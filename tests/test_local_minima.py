@@ -169,11 +169,11 @@ def test_local_minimum_classical_with_neighborlist(data_file):
 def test_minimize_pimc(wl_file):
     """Test PIMC minimization on N2-Nbeads3 system."""
     # Load PIMC data
-    wls = load_pimc_worldline_file(wl_file)
+    box_size_angstrom = 10.0
+    paths_dict = load_pimc_worldline_file(wl_file, Lx=box_size_angstrom, Ly=box_size_angstrom, Lz=box_size_angstrom)
 
     # Use first configuration
-    box_size_angstrom = 10.0
-    path = Path(wls[0], Lx=box_size_angstrom, Ly=box_size_angstrom, Lz=box_size_angstrom)
+    path = paths_dict[0]
 
     M, N, _ = path.beadCoord.shape
     print(f"\nTesting PIMC minimization:")
@@ -192,7 +192,7 @@ def test_minimize_pimc(wl_file):
 
     # Build PIMC energy and wrap for minimization
     pimc_energy_fn = build_pimc_energy_fn(displacement_fn, classical_energy_fn)
-    minimization_energy_fn = build_pimc_energy_fn_xyz(
+    minimization_energy_fn, path_template = build_pimc_energy_fn_xyz(
         pimc_energy_fn, path, beta, hbar, mass
     )
 
@@ -200,6 +200,7 @@ def test_minimize_pimc(wl_file):
 
     os.makedirs("tests/tmp", exist_ok=True)
     log_file = f"tests/tmp/pimc_M{M}_N{N}_minimization.log"
+    trajectory_file = f"tests/tmp/pimc_M{M}_N{N}_trajectory.dat"
 
     # Run minimization
     start_time = time.time()
@@ -209,6 +210,9 @@ def test_minimize_pimc(wl_file):
         xyz_initial=xyz_initial,
         log_file=log_file,
         log_every=10,
+        trajectory_file=trajectory_file,
+        trajectory_path_template=path_template,
+        save_trajectory_every=5,
         gtol=1e-6,
         maxiter=10000
     )
@@ -226,4 +230,19 @@ def test_minimize_pimc(wl_file):
     assert results['xyz_final'].shape == xyz_initial.shape, "Output shape should match input"
     assert results['energy_final'] < results['energy_initial'], \
         "Final energy should be lower than initial energy"
+
+    # Test trajectory file can be read back
+    print(f"\nVerifying trajectory file...")
+    trajectory_paths = load_pimc_worldline_file(trajectory_file, Lx=box_size_angstrom, Ly=box_size_angstrom, Lz=box_size_angstrom)
+    num_configs = len(trajectory_paths)
+    print(f"  Trajectory contains {num_configs} configurations")
+
+    assert num_configs > 0, "Trajectory file should contain at least one configuration"
+
+    # Verify we can access a Path from the trajectory
+    first_config_key = list(trajectory_paths.keys())[0]
+    first_config_path = trajectory_paths[first_config_key]
+    assert first_config_path.beadCoord.shape == xyz_initial.shape, "Trajectory config should have same shape as initial"
+
+    print(f"  Trajectory file verified successfully!")
 

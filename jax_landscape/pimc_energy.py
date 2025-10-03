@@ -140,7 +140,9 @@ def build_pimc_energy_fn_xyz(pimc_energy_fn, path_template, beta, hbar, mass=1.0
         mass: Particle mass (default 1.0)
 
     Returns:
-        energy_fn(xyz) where xyz has shape (M, N, 3), returns scalar energy (Urp)
+        tuple: (energy_fn, path_template) where:
+            - energy_fn(xyz): function mapping xyz with shape (M, N, 3) to scalar energy (Urp)
+            - path_template: the input Path object for use in trajectory saving
     """
     # Capture fixed connectivity structure
     next_indices = jnp.asarray(path_template.next)
@@ -163,7 +165,7 @@ def build_pimc_energy_fn_xyz(pimc_energy_fn, path_template, beta, hbar, mass=1.0
         result = pimc_energy_fn(path_obj, beta, hbar, mass)
         return result['Urp']  # Return ring-polymer potential energy
 
-    return energy_fn
+    return energy_fn, path_template
 
 
 __all__ = [

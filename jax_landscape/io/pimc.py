@@ -5,34 +5,46 @@ This file handles the loading of PIMC worldline data, output from a Path Integra
 
 from __future__ import annotations
 
-from typing import  Tuple, Dict, Any, List
+from typing import Dict, Any
 import logging
 import numpy as np
 import jax.numpy as jnp
 
 
-def load_pimc_worldline_file(fileName: str) -> Tuple[int, List[List[str]]]:
+def load_pimc_worldline_file(fileName: str, Lx=None, Ly=None, Lz=None) -> Dict[int, 'Path']:
     """
-    Load a pimc output worldline file ("ce-wl-*.dat"), parse and extract a list, each element of which is 
-    one worldline path at one MC step, i.e. one PIMC configuration (snapshot).
+    Load a pimc output worldline file ("ce-wl-*.dat") and return a dictionary of Path objects.
+
+    Args:
+        fileName: Path to the worldline file
+        Lx, Ly, Lz: Optional box dimensions (Angstroms). If not provided, Path objects
+                    will have None for box dimensions.
+
+    Returns:
+        Dictionary mapping configuration number to Path object: {config_number: Path}
     """
     with open(fileName, 'r') as wlFile:
         lines = wlFile.readlines()
 
-    n = 0
-    wls = []
+    paths_dict = {}
+    cfg_id = None
     data = []
+
     for line in lines:
         if 'START_CONFIG' in line:
-            n += 1
             data = []
+            parts = line.split()
+            cfg_id = int(parts[-1])  # Extract configuration number
         elif 'END_CONFIG' in line:
-            wls.append(data)
+            if cfg_id is not None and len(data) > 0:
+                paths_dict[cfg_id] = Path(data, Lx=Lx, Ly=Ly, Lz=Lz)
+            data = []
         elif line and line[0] == '#':
             continue
         else:
             data.append(line.split())
-    return wls
+
+    return paths_dict
 
 
 class Path:
@@ -139,4 +151,42 @@ class Path:
             # W = self.computeWinding(beadCoords)
 
             # ----
-            # TODO: check that it is indeed closed cycle. throw error if not. This means the wl file has wrong info about closedness. 
+            # TODO: check that it is indeed closed cycle. throw error if not. This means the wl file has wrong info about closedness.
+
+
+def write_pimc_worldline_config(file_handle, path, config_number):
+    """
+    Write a single PIMC configuration to an open file in worldline format.
+
+    This format is compatible with load_pimc_worldline_file() and visualization tools.
+
+    Args:
+        file_handle: Open file handle to write to
+        path: Path object containing beadCoord, next, prev, wlIndex arrays
+        config_number: Configuration number (e.g., iteration number for minimization)
+    """
+    file_handle.write(f"# START_CONFIG {config_number:06d}\n")
+
+    M, N, _ = path.beadCoord.shape  # time slices, particles
+
+    # Write each bead: m, n, wlIndex, x, y, z, prev_m, prev_n, next_m, next_n
+    for m in range(M):
+        for n in range(N):
+            # Get coordinates
+            x, y, z = path.beadCoord[m, n]
+
+            # Get connectivity
+            prev_m, prev_n = path.prev[m, n]
+            next_m, next_n = path.next[m, n]
+
+            # Get wlIndex (if available)
+            wl_idx = path.wlIndex[m, n] if hasattr(path, 'wlIndex') else 1
+
+            # Format: fixed width fields, scientific notation for coordinates
+            file_handle.write(
+                f"{m:7d} {n:8d} {wl_idx:8d}   "
+                f"{x:12.3E}   {y:12.3E}   {z:12.3E}   "
+                f"{prev_m:8d} {prev_n:8d} {next_m:8d} {next_n:8d}\n"
+            )
+
+    file_handle.write("# END_CONFIG\n") 

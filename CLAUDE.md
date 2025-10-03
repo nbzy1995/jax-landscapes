@@ -33,8 +33,15 @@ Run tests in parallel: `pytest -n auto`
 - `jax_landscape/energy_fun.py`: Aziz 1995 potential implementation with/without neighbor lists
 - `jax_landscape/pimc_energy.py`: PIMC total energy (U_RP) for closed worldline configurations
 - `jax_landscape/local_minima.py`: Local minimization using scipy.optimize with JAX gradients
-- `jax_landscape/io/pimc.py`: Loader for PIMC worldline output files (`ce-wl-*.dat`)
+- `jax_landscape/io/pimc.py`: Loader/writer for PIMC worldline files (`ce-wl-*.dat`)
 - `jax_landscape/main.py`: CLI entry point supporting classical and PIMC input formats
+
+### Examples
+
+- `example/pimc_visualization/`: Interactive 3D visualization of PIMC worldlines
+  - `vis-worldlines.ipynb`: Plotly-based visualization notebook
+  - Works with both PIMC output and minimization trajectories
+  - Requires: plotly, ipywidgets
 
 ### External Dependencies
 
@@ -94,11 +101,50 @@ The `Path` class represents a single PIMC configuration with:
 
 ### Local Minimization
 
-`find_local_minimum()` uses scipy.optimize.minimize with JAX-computed gradients. The function:
-- Automatically handles neighbor list reallocation during optimization
-- Supports different energy function factories via factory pattern
+`find_local_minimum()` provides a unified interface for minimizing any energy function:
+- Takes pre-built `energy_fn(xyz)` directly (not factory)
+- Optional `neighbor_fn` for automatic neighbor list management during optimization
+- Supports classical and PIMC energy functions via same interface
 - Returns dict with `xyz_final`, `energy_final`, `energy_initial`, convergence info
 - Can log optimization progress to file
+
+**Usage**:
+```python
+# Classical without neighbor list
+displacement_fn, _ = space.periodic(box_size)
+energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
+result = find_local_minimum(energy_fn, xyz_initial)
+
+# Classical with neighbor list
+neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)
+result = find_local_minimum(energy_fn, xyz_initial, neighbor_fn=neighbor_fn)
+
+# PIMC with trajectory saving
+from jax_landscape.pimc_energy import build_pimc_energy_fn_xyz
+pimc_energy_fn = build_pimc_energy_fn(displacement_fn, classical_energy_fn)
+minimization_energy_fn, path_template = build_pimc_energy_fn_xyz(
+    pimc_energy_fn, path_obj, beta, hbar, mass
+)
+result = find_local_minimum(
+    minimization_energy_fn,
+    path_obj.beadCoord,
+    trajectory_file='trajectory.dat',
+    trajectory_path_template=path_template,
+    save_trajectory_every=10
+)
+```
+
+**PIMC Minimization**: Use `build_pimc_energy_fn_xyz()` to create a wrapper that:
+- Maintains fixed worldline connectivity (next/prev arrays)
+- Only optimizes bead coordinates
+- Returns (energy_fn, path_template) tuple
+- path_template enables trajectory saving in PIMC worldline format
+
+**Trajectory Saving**: For PIMC minimization, snapshots can be saved in worldline format:
+- Output file is identical to PIMC worldline files (`ce-wl-*.dat`)
+- Each configuration corresponds to a minimization iteration
+- Can be visualized using existing PIMC visualization tools
+- Connectivity is preserved across all snapshots
 
 ## Code Style
 

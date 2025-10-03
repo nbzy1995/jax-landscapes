@@ -4,8 +4,11 @@ from jax_landscape.io.pimc import load_pimc_worldline_file, Path
 
 def test_load_sample_worldline():
     path = 'tests/test_data/N2-Nbeads3-cycle1.dat'
-    wls = load_pimc_worldline_file(path)
-    cfg = Path(wls[0], Lx=10.0, Ly=10.0, Lz=10.0)
+    paths_dict = load_pimc_worldline_file(path, Lx=10.0, Ly=10.0, Lz=10.0)
+    assert len(paths_dict) == 1, "Should have one configuration"
+    assert 0 in paths_dict, "Config 0 should be in dict"
+
+    cfg = paths_dict[0]
     M, N, D = cfg.beadCoord.shape
     assert (M, N, D) == (3, 2, 3)
     assert cfg.next.shape == (3, 2, 2)

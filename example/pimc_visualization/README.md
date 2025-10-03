@@ -152,3 +152,55 @@ cycles distribution: [1. 1.]
 ```
 
 This indicates two cycles, each of length M (no permutation).
+
+## N64 Helium Minimization Example
+
+This directory includes a complete example of PIMC energy minimization for a 64-particle Helium system.
+
+### System Parameters
+
+From `test_full_wl` in `tests/test_pimc_energy.py`:
+- **N = 64** particles
+- **Density = 0.0218** Å⁻³
+- **Temperature = 1.55** K
+- **Box size = 14.73** Å (cubic)
+- **Time slices = 160** (M=160)
+
+### Running the Example
+
+**Step 1: Run minimization**
+```bash
+cd example/pimc_visualization
+python minimize_N64.py
+```
+
+This will:
+- Load the N64.dat configuration
+- Perform PIMC energy minimization
+- Save trajectory to `N64_minimization_trajectory.dat`
+- Save energy log to `N64_minimization.log` (with Urp, E_sp, E_int columns)
+- Print initial/final energies and statistics
+
+**Step 2: Visualize results**
+```bash
+jupyter notebook visualize_N64_minimization.ipynb
+```
+
+The notebook provides:
+- **Energy evolution plots**: See how Urp, E_sp, and E_int change during minimization
+- **3D worldline visualization**: Interactive slider to view configurations at different iterations
+- **Cycle analysis**: Track how worldline cycles evolve
+
+### What to Observe
+
+During minimization, you'll see:
+- **E_sp (spring energy)** decreases as beads compact
+- **E_int (interaction energy)** may increase/decrease depending on particle arrangements
+- **Urp (total)** = E_sp + E_int decreases overall
+- **Worldline structure** evolves from initial PIMC configuration to local minimum
+
+### Output Files
+
+After running `minimize_N64.py`:
+- `N64_minimization.log`: CSV with columns `Iteration,Energy(Urp),E_sp,E_int,GradientNorm`
+- `N64_minimization_trajectory.dat`: Worldline file with snapshots every 50 iterations

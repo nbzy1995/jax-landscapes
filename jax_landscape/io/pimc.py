@@ -81,9 +81,13 @@ class Path:
         self.prev    = np.zeros([self.numTimeSlices,self.numParticles,2],int)
         self.wlIndex = np.zeros([self.numTimeSlices,self.numParticles],int)
 
-        for line in self.wlData:
+        # Store the order in which beads appear in the input file for output preservation
+        self.write_order = np.zeros([len(self.wlData), 2], int)
+
+        for idx, line in enumerate(self.wlData):
             m = int(line[0])                    # time slice idx, 0 to numTimeSlices-1
             n = int(line[1])                    # particle idx, 0 to numParticles-1
+            self.write_order[idx] = [m, n]      # Store the order for writing output
             self.wlIndex[m,n] = int(line[2])    # TODO: what is this for?
             if self.wlIndex[m,n] < 0:
                 # logging.warning(f"Open worldline path found: negative wlIndex found: {self.wlIndex[m,n]} at time slice {m}, particle {n}. ")
@@ -169,9 +173,10 @@ def write_pimc_worldline_config(file_handle, path, config_number):
 
     M, N, _ = path.beadCoord.shape  # time slices, particles
 
-    # Write each bead: m, n, wlIndex, x, y, z, prev_m, prev_n, next_m, next_n
-    for m in range(M):
-        for n in range(N):
+    # Use write_order if available to preserve input file ordering
+    if hasattr(path, 'write_order') and path.write_order is not None:
+        # Iterate in the order specified by write_order
+        for m, n in path.write_order:
             # Get coordinates
             x, y, z = path.beadCoord[m, n]
 
@@ -188,5 +193,25 @@ def write_pimc_worldline_config(file_handle, path, config_number):
                 f"{x:12.3E}   {y:12.3E}   {z:12.3E}   "
                 f"{prev_m:8d} {prev_n:8d} {next_m:8d} {next_n:8d}\n"
             )
+    else:
+        # Fall back to (m,n) nested loop order for backwards compatibility
+        for m in range(M):
+            for n in range(N):
+                # Get coordinates
+                x, y, z = path.beadCoord[m, n]
+
+                # Get connectivity
+                prev_m, prev_n = path.prev[m, n]
+                next_m, next_n = path.next[m, n]
+
+                # Get wlIndex (if available)
+                wl_idx = path.wlIndex[m, n] if hasattr(path, 'wlIndex') else 1
+
+                # Format: fixed width fields, scientific notation for coordinates
+                file_handle.write(
+                    f"{m:7d} {n:8d} {wl_idx:8d}   "
+                    f"{x:12.3E}   {y:12.3E}   {z:12.3E}   "
+                    f"{prev_m:8d} {prev_n:8d} {next_m:8d} {next_n:8d}\n"
+                )
 
     file_handle.write("# END_CONFIG\n") 

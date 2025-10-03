@@ -108,17 +108,19 @@ def find_local_minimum(
         def create_path_snapshot(xyz_coords):
             """Create a Path-like object with current coords and template connectivity."""
             class PathSnapshot:
-                def __init__(self, beadCoord, next, prev, wlIndex):
+                def __init__(self, beadCoord, next, prev, wlIndex, write_order):
                     self.beadCoord = beadCoord
                     self.next = next
                     self.prev = prev
                     self.wlIndex = wlIndex
+                    self.write_order = write_order
 
             return PathSnapshot(
                 beadCoord=np.array(xyz_coords),
                 next=trajectory_path_template.next,
                 prev=trajectory_path_template.prev,
-                wlIndex=trajectory_path_template.wlIndex if hasattr(trajectory_path_template, 'wlIndex') else None
+                wlIndex=trajectory_path_template.wlIndex if hasattr(trajectory_path_template, 'wlIndex') else None,
+                write_order=trajectory_path_template.write_order if hasattr(trajectory_path_template, 'write_order') else None
             )
 
     def objective_function(xyz_flat):

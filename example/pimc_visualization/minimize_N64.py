@@ -6,6 +6,19 @@ This script performs energy minimization on a 64-particle Helium PIMC configurat
 and saves the trajectory for visualization. The system parameters are taken from
 test_full_wl in tests/test_pimc_energy.py.
 
+
+TODO: change the output pattern:
+- The input file is a worldline file that can contain multiple configurations
+- We should specifiy which configuration to minimize (default: the first one)
+- For each configuration that we minimize, we output the logging info:
+    - A log file with the energy at each iteration.
+    - A trajectory file that contains the minimization path for that configuration. The file also contains the metadata of that config. 
+    - the filename should reflect which configuration it is (e.g., conf0, conf1, etc.)
+- For the result, we should output:
+    - one worldline file that contains all the minimized configurations, with configuration step same as input file.
+    - one estimator file that contains the initial and final energies for each configuration, of the same format as the estimator file output by the PIMC simulation.
+
+
 Usage:
     python minimize_N64.py
 """

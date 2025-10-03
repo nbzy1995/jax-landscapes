@@ -123,6 +123,50 @@ def build_pimc_energy_fn(displacement_fn: Callable[[Array, Array], Array], poten
 
     return pimc_energy_fn
 
+
+def build_pimc_energy_fn_xyz(pimc_energy_fn, path_template, beta, hbar, mass=1.0):
+    """
+    Create a minimization-friendly wrapper for PIMC energy that only takes xyz coordinates.
+
+    This function captures the Path connectivity structure and PIMC parameters, returning
+    an energy function that can be used with find_local_minimum. The connectivity (next/prev)
+    remains fixed during minimization, only bead coordinates are optimized.
+
+    Args:
+        pimc_energy_fn: PIMC energy function from build_pimc_energy_fn
+        path_template: Path object providing connectivity (next/prev) and shape info
+        beta: Inverse temperature β
+        hbar: Reduced Planck constant ℏ
+        mass: Particle mass (default 1.0)
+
+    Returns:
+        energy_fn(xyz) where xyz has shape (M, N, 3), returns scalar energy (Urp)
+    """
+    # Capture fixed connectivity structure
+    next_indices = jnp.asarray(path_template.next)
+    target_shape = path_template.beadCoord.shape  # (M, N, 3)
+
+    def energy_fn(xyz):
+        """Energy function that takes only bead coordinates."""
+        # Ensure correct shape
+        bead_coords = xyz.reshape(target_shape)
+
+        # Create minimal path-like object with only required attributes
+        class MinimalPath:
+            def __init__(self, beadCoord, next):
+                self.beadCoord = beadCoord
+                self.next = next
+
+        path_obj = MinimalPath(bead_coords, next_indices)
+
+        # Compute PIMC energy
+        result = pimc_energy_fn(path_obj, beta, hbar, mass)
+        return result['Urp']  # Return ring-polymer potential energy
+
+    return energy_fn
+
+
 __all__ = [
-    'build_pimc_energy_fn'
+    'build_pimc_energy_fn',
+    'build_pimc_energy_fn_xyz'
 ]

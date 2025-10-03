@@ -73,12 +73,16 @@ def find_local_minimum(
         dict: Optimization results containing minimized coordinates and energy
     """
 
-    # Calculate initial energy
+    # Calculate initial energy and detect if PIMC energy function
     if neighbor_fn is not None:
         initial_nbrs = neighbor_fn.allocate(xyz_initial)
-        initial_energy = energy_fn(xyz_initial, neighbor=initial_nbrs)
+        initial_result = energy_fn(xyz_initial, neighbor=initial_nbrs)
     else:
-        initial_energy = energy_fn(xyz_initial)
+        initial_result = energy_fn(xyz_initial)
+
+    # Detect if this is a PIMC energy function (returns dict)
+    is_pimc_energy = isinstance(initial_result, dict)
+    initial_energy = initial_result['energy'] if is_pimc_energy else initial_result
 
     # Use a closure and a mutable list for the counter to avoid a class.
     iteration_count = [0]
@@ -86,7 +90,10 @@ def find_local_minimum(
     # Setup log file
     if log_file:
         with open(log_file, 'w') as f:
-            f.write("Iteration,Energy,GradientNorm\n")
+            if is_pimc_energy:
+                f.write("Iteration,Energy(Urp),E_sp,E_int,GradientNorm\n")
+            else:
+                f.write("Iteration,Energy,GradientNorm\n")
 
     # Setup trajectory file with header
     trajectory_handle = None
@@ -122,16 +129,27 @@ def find_local_minimum(
         if neighbor_fn is not None:
             # Reallocate neighbor list for current coordinates
             nbrs = neighbor_fn.allocate(xyz)
-            energy = energy_fn(xyz, neighbor=nbrs)
-            grad = jax.grad(energy_fn, argnums=0)(xyz, neighbor=nbrs)
+            result = energy_fn(xyz, neighbor=nbrs)
+            grad = jax.grad(lambda x: energy_fn(x, neighbor=nbrs) if not is_pimc_energy else energy_fn(x, neighbor=nbrs)['energy'], argnums=0)(xyz)
         else:
-            energy = energy_fn(xyz)
-            grad = jax.grad(energy_fn)(xyz)
+            result = energy_fn(xyz)
+            grad = jax.grad(lambda x: energy_fn(x) if not is_pimc_energy else energy_fn(x)['energy'])(xyz)
+
+        # Extract scalar energy from result (handle both scalar and dict)
+        if is_pimc_energy:
+            energy = result['energy']
+            E_sp = result['E_sp']
+            E_int = result['E_int']
+        else:
+            energy = result
 
         if log_file and iteration_count[0] % log_every == 0:
             grad_norm = np.linalg.norm(grad.flatten())
             with open(log_file, 'a') as f:
-                f.write(f"{iteration_count[0]},{energy},{grad_norm}\n")
+                if is_pimc_energy:
+                    f.write(f"{iteration_count[0]},{energy},{E_sp},{E_int},{grad_norm}\n")
+                else:
+                    f.write(f"{iteration_count[0]},{energy},{grad_norm}\n")
 
         # Save trajectory snapshot if requested
         if trajectory_handle and iteration_count[0] % save_trajectory_every == 0:

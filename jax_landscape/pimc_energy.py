@@ -141,7 +141,7 @@ def build_pimc_energy_fn_xyz(pimc_energy_fn, path_template, beta, hbar, mass=1.0
 
     Returns:
         tuple: (energy_fn, path_template) where:
-            - energy_fn(xyz): function mapping xyz with shape (M, N, 3) to scalar energy (Urp)
+            - energy_fn(xyz): function mapping xyz with shape (M, N, 3) to dict with 'energy' (Urp) and 'E_sp'
             - path_template: the input Path object for use in trajectory saving
     """
     # Capture fixed connectivity structure
@@ -163,7 +163,7 @@ def build_pimc_energy_fn_xyz(pimc_energy_fn, path_template, beta, hbar, mass=1.0
 
         # Compute PIMC energy
         result = pimc_energy_fn(path_obj, beta, hbar, mass)
-        return result['Urp']  # Return ring-polymer potential energy
+        return {'energy': result['Urp'], 'E_sp': result['E_sp'], 'E_int': result['E_int']}
 
     return energy_fn, path_template
 

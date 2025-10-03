@@ -64,7 +64,7 @@ def test_local_minimum_classical_no_neighborlist(data_file):
         energy_fn=energy_fn,
         xyz_initial=xyz_initial,
         log_file=log_file,
-        log_every=10
+        log_every=1
     )
 
     print(f"Initial energy: {results['energy_initial']:.8f}")
@@ -199,8 +199,8 @@ def test_minimize_pimc(wl_file):
     xyz_initial = path.beadCoord  # shape (M, N, 3)
 
     os.makedirs("tests/tmp", exist_ok=True)
-    log_file = f"tests/tmp/pimc_M{M}_N{N}_minimization.log"
-    trajectory_file = f"tests/tmp/pimc_M{M}_N{N}_trajectory.dat"
+    log_file = f"tests/tmp/pimc_M{M}_N{N}.min.log"
+    trajectory_file = f"tests/tmp/pimc_M{M}_N{N}.min.wl.dat"
 
     # Run minimization
     start_time = time.time()
@@ -209,10 +209,10 @@ def test_minimize_pimc(wl_file):
         energy_fn=minimization_energy_fn,
         xyz_initial=xyz_initial,
         log_file=log_file,
-        log_every=10,
+        log_every=1,
         trajectory_file=trajectory_file,
         trajectory_path_template=path_template,
-        save_trajectory_every=5,
+        save_trajectory_every=1,
         gtol=1e-6,
         maxiter=10000
     )

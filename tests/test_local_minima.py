@@ -16,6 +16,8 @@ from jax_landscape.energy_fun import build_energy_fn_aziz_1995_neighborlist, bui
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_default_dtype_bits", "64")
 
+nm_to_Angstrom = 10.0
+KJmol_to_KBK = 120.2722922542  # kJ/mol to kB K
 
 def load_test_data(filename):
     """Load test data from JSON file."""
@@ -39,17 +41,17 @@ def test_local_minimum_aziz1995(data_file):
     # Load test data
     data = load_test_data(data_file)
 
-    xyz_initial = data['xyz']
-    box_size = data['box']
-    xyz_reference = data['xyz_IS']
-    energy_reference = data['E_IS']
+    xyz_initial = data['xyz'] * nm_to_Angstrom
+    box_size = data['box'] * nm_to_Angstrom
+    xyz_reference = data['xyz_IS'] * nm_to_Angstrom
+    energy_reference = data['E_IS'] * KJmol_to_KBK
     
     print(f"\nTesting local minimization with {xyz_initial.shape[0]} particles:")
 
     os.makedirs("tests/tmp", exist_ok=True)
     log_file = f"tests/tmp/N{xyz_initial.shape[0]}_minimization.log"
     
-    print(f"Initial energy: {results['energy_initial']:.8f}")
+    # Run minimization (compute initial energy inside routine)
 
     # Start timing the minimization
     start_time = time.time()
@@ -61,6 +63,8 @@ def test_local_minimum_aziz1995(data_file):
         log_file=log_file,
         log_every=10
     )
+
+    print(f"Initial energy: {results['energy_initial']:.8f}")
     
     # End timing and calculate duration
     end_time = time.time()

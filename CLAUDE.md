@@ -45,7 +45,7 @@ Run tests in parallel: `pytest -n auto`
 
 ### External Dependencies
 
-- `external/jax-md/`: Modified JAX-MD library included in the repository
+- JAX-MD: Installed from https://github.com/nbzy1995/jax-md (specified in setup.py)
 
 ## Command Line Interface
 

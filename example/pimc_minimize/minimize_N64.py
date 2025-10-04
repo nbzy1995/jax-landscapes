@@ -195,8 +195,9 @@ def main():
             trajectory_file=trajectory_file,
             trajectory_path_template=path_template,
             save_trajectory_every=100,
-            gtol=1e-6,
+            gtol=1e-3,
             maxiter=10000,
+            energy_change_tol=1e-2,
             initial_iteration=resume_iteration,
             resume_mode=resume_mode,
             metadata=metadata

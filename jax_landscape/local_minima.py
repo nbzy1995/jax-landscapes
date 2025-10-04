@@ -50,7 +50,8 @@ def find_local_minimum(
     save_trajectory_every=10,
     initial_iteration=0,
     resume_mode=False,
-    metadata=None
+    metadata=None,
+    energy_change_tol=1e-2
 ):
     """
     Find local minimum (inherent structure) of a system using scipy.optimize.minimize.
@@ -74,6 +75,8 @@ def find_local_minimum(
         initial_iteration: Starting iteration number (for resume functionality, default 0).
         resume_mode: If True, append to existing log/trajectory files instead of overwriting.
         metadata: Optional dict of metadata to write as comments in log file (e.g., system params).
+        energy_change_tol: Absolute energy change tolerance for convergence (default 1e-2).
+                          Converges when: abs(E_new - E_old) < energy_change_tol AND grad_norm < gtol
 
     Returns:
         dict: Optimization results containing minimized coordinates and energy
@@ -93,6 +96,19 @@ def find_local_minimum(
     # Use a closure and a mutable list for the counter to avoid a class.
     iteration_count = [initial_iteration]
 
+    # Track convergence criteria (energy change and gradient norm)
+    convergence_state = {
+        'prev_energy': None,
+        'current_energy': None,
+        'grad_norm': None,
+        'converged': False,
+        'convergence_message': None
+    }
+
+    # Custom exception for convergence
+    class ConvergenceReached(Exception):
+        pass
+
     # Setup log file
     if log_file:
         file_mode = 'a' if resume_mode else 'w'
@@ -108,7 +124,8 @@ def find_local_minimum(
                 # Write optimization settings
                 f.write(f"# Optimization settings:\n")
                 f.write(f"#   method: {method}\n")
-                f.write(f"#   gtol: {gtol}\n")
+                f.write(f"#   Custom convergence criteria (scipy criteria disabled):\n")
+                f.write(f"#     abs(delta_E) < {energy_change_tol} AND grad_norm < {gtol}\n")
                 f.write(f"#   maxiter: {maxiter}\n")
                 f.write(f"#   maxfun: {maxfun}\n")
                 f.write("#\n")
@@ -195,6 +212,12 @@ def find_local_minimum(
         else:
             energy = result
 
+        # Update convergence tracking
+        grad_norm = np.linalg.norm(grad.flatten())
+        convergence_state['prev_energy'] = convergence_state['current_energy']
+        convergence_state['current_energy'] = float(energy)
+        convergence_state['grad_norm'] = grad_norm
+
         if log_file and iteration_count[0] % log_every == 0:
             grad_norm = np.linalg.norm(grad.flatten())
             with open(log_file, 'a') as f:
@@ -211,30 +234,87 @@ def find_local_minimum(
 
         return float(energy), np.array(grad.flatten())
 
+    def convergence_callback(xk):
+        """Check custom convergence criteria: abs(delta_E) < tol AND grad_norm < gtol"""
+        if convergence_state['prev_energy'] is not None:
+            energy_change = abs(convergence_state['current_energy'] - convergence_state['prev_energy'])
+            grad_norm = convergence_state['grad_norm']
+
+            # Check both criteria
+            energy_converged = energy_change < energy_change_tol
+            gradient_converged = grad_norm < gtol
+
+            if energy_converged and gradient_converged:
+                convergence_state['converged'] = True
+                convergence_state['convergence_message'] = (
+                    f"CUSTOM CONVERGENCE: Energy change {energy_change:.6e} < {energy_change_tol:.6e} "
+                    f"AND gradient norm {grad_norm:.6e} < {gtol:.6e}"
+                )
+                raise ConvergenceReached()
+
     xyz_flat = xyz_initial.flatten()
-    
+
+    # Disable scipy's built-in convergence - only use our custom callback
     options = {
         'maxiter': maxiter,
-        'maxfun': maxfun, 
-        'gtol': gtol
+        'maxfun': maxfun,
+        'disp': True      # Enable verbose output
     }
-    
-    # Run optimization
-    results = optimize.minimize(
-        objective_function, 
-        xyz_flat, 
-        method=method, 
-        jac=True, 
-        options=options
-    )
+
+    # For L-BFGS-B: disable all convergence criteria
+    if method == 'L-BFGS-B':
+        # ftol: stop when (f^k - f^{k+1})/max{|f^k|,|f^{k+1}|,1} <= ftol
+        # Setting to 0 effectively disables (controlled by factr = ftol / eps)
+        options['ftol'] = 0
+        # gtol: stop when max{|proj g_i|} <= gtol
+        # Setting to very small value (1e-100) makes this criterion almost impossible to satisfy
+        options['gtol'] = 1e-100
+
+    # Run optimization with convergence callback
+    try:
+        results = optimize.minimize(
+            objective_function,
+            xyz_flat,
+            method=method,
+            jac=True,
+            options=options,
+            callback=convergence_callback
+        )
+    except ConvergenceReached:
+        # Custom convergence reached - create results dict manually
+        minimized_xyz = xyz_flat.reshape(xyz_initial.shape)  # Current state
+        minimized_energy = convergence_state['current_energy']
+
+        class CustomResult:
+            def __init__(self):
+                self.x = xyz_flat
+                self.fun = minimized_energy
+                self.success = True
+                self.message = convergence_state['convergence_message']
+                self.nfev = iteration_count[0]
+                self.nit = iteration_count[0]  # Approximate
+
+        results = CustomResult()
     
     minimized_xyz = results.x.reshape(xyz_initial.shape)
     minimized_energy = results.fun
 
-    # Save final trajectory state and close file
+    # Write final optimization statistics to log file
+    if log_file:
+        with open(log_file, 'a') as f:
+            f.write("#\n")
+            f.write("# Optimization completed\n")
+            f.write(f"# Success: {results.success}\n")
+            f.write(f"# Message: {results.message}\n")
+            f.write(f"# Scipy iterations (nit): {results.nit}\n")
+            f.write(f"# Function evaluations (nfev): {results.nfev}\n")
+            f.write(f"# Final function evaluation number: {iteration_count[0]}\n")
+            f.write(f"# Initial energy: {initial_energy:.6f}\n")
+            f.write(f"# Final energy: {minimized_energy:.6f}\n")
+            f.write(f"# Energy reduction: {initial_energy - minimized_energy:.6f}\n")
+
+    # Close trajectory file (final state goes to results file, not trajectory)
     if trajectory_handle:
-        path_snapshot = create_path_snapshot(minimized_xyz)
-        write_pimc_worldline_config(trajectory_handle, path_snapshot, iteration_count[0])
         trajectory_handle.close()
 
     return {

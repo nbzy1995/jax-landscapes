@@ -47,7 +47,10 @@ def find_local_minimum(
     log_every=10,
     trajectory_file=None,
     trajectory_path_template=None,
-    save_trajectory_every=10
+    save_trajectory_every=10,
+    initial_iteration=0,
+    resume_mode=False,
+    metadata=None
 ):
     """
     Find local minimum (inherent structure) of a system using scipy.optimize.minimize.
@@ -68,6 +71,9 @@ def find_local_minimum(
                         Only used if trajectory_path_template is also provided.
         trajectory_path_template: Optional Path object providing connectivity structure for PIMC trajectory output.
         save_trajectory_every: Save trajectory snapshot every N iterations (default 10).
+        initial_iteration: Starting iteration number (for resume functionality, default 0).
+        resume_mode: If True, append to existing log/trajectory files instead of overwriting.
+        metadata: Optional dict of metadata to write as comments in log file (e.g., system params).
 
     Returns:
         dict: Optimization results containing minimized coordinates and energy
@@ -85,36 +91,80 @@ def find_local_minimum(
     initial_energy = initial_result['energy'] if is_pimc_energy else initial_result
 
     # Use a closure and a mutable list for the counter to avoid a class.
-    iteration_count = [0]
+    iteration_count = [initial_iteration]
 
     # Setup log file
     if log_file:
-        with open(log_file, 'w') as f:
-            if is_pimc_energy:
-                f.write("Iteration,Energy(Urp),E_sp,E_int,GradientNorm\n")
+        file_mode = 'a' if resume_mode else 'w'
+        with open(log_file, file_mode) as f:
+            if not resume_mode:
+                # Write metadata as comments
+                if metadata:
+                    f.write("# Minimization run metadata\n")
+                    for key, value in metadata.items():
+                        f.write(f"# {key}: {value}\n")
+                    f.write("#\n")
+
+                # Write optimization settings
+                f.write(f"# Optimization settings:\n")
+                f.write(f"#   method: {method}\n")
+                f.write(f"#   gtol: {gtol}\n")
+                f.write(f"#   maxiter: {maxiter}\n")
+                f.write(f"#   maxfun: {maxfun}\n")
+                f.write("#\n")
+
+                # Write CSV header
+                if is_pimc_energy:
+                    f.write("Iteration,Energy(Urp),E_sp,E_int,GradientNorm\n")
+                else:
+                    f.write("Iteration,Energy,GradientNorm\n")
+
+                # Write iteration 0 (initial state)
+                if is_pimc_energy:
+                    E_sp = initial_result['E_sp']
+                    E_int = initial_result['E_int']
+                    f.write(f"0,{initial_energy},{E_sp},{E_int},0.0\n")
+                else:
+                    f.write(f"0,{initial_energy},0.0\n")
             else:
-                f.write("Iteration,Energy,GradientNorm\n")
+                # Resume mode - write resume info
+                f.write(f"# Resuming from iteration {initial_iteration}\n")
 
     # Setup trajectory file with header
     trajectory_handle = None
     if trajectory_file and trajectory_path_template:
-        trajectory_handle = open(trajectory_file, 'w')
-        trajectory_handle.write("# PIMCID: minimization-trajectory\n")
+        file_mode = 'a' if resume_mode else 'w'
+        trajectory_handle = open(trajectory_file, file_mode)
 
         # Import here to avoid circular dependency
         from .io.pimc import write_pimc_worldline_config
 
-        # Helper to create Path object from xyz
+        # Define PathSnapshot class for trajectory snapshots
+        class PathSnapshot:
+            def __init__(self, beadCoord, next, prev, wlIndex, write_order):
+                self.beadCoord = beadCoord
+                self.next = next
+                self.prev = prev
+                self.wlIndex = wlIndex
+                self.write_order = write_order
+
+        if not resume_mode:
+            trajectory_handle.write("# PIMCID: minimization-trajectory\n")
+
+            # Write iteration 0 (initial state)
+            initial_snapshot = PathSnapshot(
+                beadCoord=np.array(xyz_initial),
+                next=trajectory_path_template.next,
+                prev=trajectory_path_template.prev,
+                wlIndex=trajectory_path_template.wlIndex if hasattr(trajectory_path_template, 'wlIndex') else None,
+                write_order=trajectory_path_template.write_order if hasattr(trajectory_path_template, 'write_order') else None
+            )
+            write_pimc_worldline_config(trajectory_handle, initial_snapshot, 0)
+            trajectory_handle.flush()
+
+        # Helper to create Path object from xyz (reuse PathSnapshot class)
         def create_path_snapshot(xyz_coords):
             """Create a Path-like object with current coords and template connectivity."""
-            class PathSnapshot:
-                def __init__(self, beadCoord, next, prev, wlIndex, write_order):
-                    self.beadCoord = beadCoord
-                    self.next = next
-                    self.prev = prev
-                    self.wlIndex = wlIndex
-                    self.write_order = write_order
-
             return PathSnapshot(
                 beadCoord=np.array(xyz_coords),
                 next=trajectory_path_template.next,

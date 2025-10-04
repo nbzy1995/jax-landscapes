@@ -214,4 +214,41 @@ def write_pimc_worldline_config(file_handle, path, config_number):
                     f"{prev_m:8d} {prev_n:8d} {next_m:8d} {next_n:8d}\n"
                 )
 
-    file_handle.write("# END_CONFIG\n") 
+    file_handle.write("# END_CONFIG\n")
+
+
+def read_last_config_from_trajectory(trajectory_file, Lx=None, Ly=None, Lz=None):
+    """
+    Read the last configuration from a minimization trajectory file.
+
+    This function is used for resuming minimization from a previous run.
+
+    Args:
+        trajectory_file: Path to the trajectory file
+        Lx, Ly, Lz: Optional box dimensions (Angstroms)
+
+    Returns:
+        Tuple of (Path object of last config, last iteration number)
+        Returns (None, 0) if file doesn't exist or is empty
+    """
+    import os
+    if not os.path.exists(trajectory_file):
+        return None, 0
+
+    try:
+        # Load all configurations from the trajectory file
+        paths_dict = load_pimc_worldline_file(trajectory_file, Lx=Lx, Ly=Ly, Lz=Lz)
+
+        if not paths_dict:
+            return None, 0
+
+        # Get the last configuration (highest iteration number)
+        last_iteration = max(paths_dict.keys())
+        last_path = paths_dict[last_iteration]
+
+        return last_path, last_iteration
+
+    except Exception as e:
+        # If there's any error reading the file, treat as fresh start
+        print(f"Warning: Could not read trajectory file {trajectory_file}: {e}")
+        return None, 0 

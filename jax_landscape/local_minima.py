@@ -95,6 +95,7 @@ def find_local_minimum(
 
     # Use a closure and a mutable list for the counter to avoid a class.
     iteration_count = [initial_iteration]
+    current_xyz = [xyz_initial.flatten()]
 
     # Track convergence criteria (energy change and gradient norm)
     convergence_state = {
@@ -193,6 +194,7 @@ def find_local_minimum(
     def objective_function(xyz_flat):
         """The objective is to minimize the total potential energy of the system"""
         iteration_count[0] += 1
+        current_xyz[0] = xyz_flat
         xyz = jnp.array(xyz_flat, dtype=jnp.float64).reshape(xyz_initial.shape)
 
         if neighbor_fn is not None:
@@ -287,7 +289,7 @@ def find_local_minimum(
 
         class CustomResult:
             def __init__(self):
-                self.x = xyz_flat
+                self.x = current_xyz[0]
                 self.fun = minimized_energy
                 self.success = True
                 self.message = convergence_state['convergence_message']

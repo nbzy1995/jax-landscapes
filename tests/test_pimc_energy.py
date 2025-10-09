@@ -141,6 +141,7 @@ def test_full_wl():
     print("E_sp from pimc_energy(): ", res['E_sp'])
     print("E_sp from reference: ", -1 * (ref_Eqm - ref_Eint - 1.5 * M * N / beta))
 
+    print("NOTE: fix this later! ")
 
     assert jnp.isclose(res['E_qm'], ref_Eqm, rtol=1e-6)
     assert jnp.isclose(res['E_int'], ref_Eint, rtol=1e-6)

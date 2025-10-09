@@ -93,7 +93,7 @@ def find_local_minimum(
     is_pimc_energy = isinstance(initial_result, dict)
     initial_energy = initial_result['energy'] if is_pimc_energy else initial_result
 
-    # Use a closure and a mutable list for the counter to avoid a class.
+    # counter 
     iteration_count = [initial_iteration]
     current_xyz = [xyz_initial.flatten()]
 
@@ -220,6 +220,7 @@ def find_local_minimum(
         convergence_state['current_energy'] = float(energy)
         convergence_state['grad_norm'] = grad_norm
 
+        # Log progress if requested
         if log_file and iteration_count[0] % log_every == 0:
             grad_norm = np.linalg.norm(grad.flatten())
             with open(log_file, 'a') as f:

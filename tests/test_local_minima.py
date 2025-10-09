@@ -14,6 +14,7 @@ from jax_landscape.local_minima import find_local_minimum
 from jax_landscape.energy_fun import build_energy_fn_aziz_1995_neighborlist, build_energy_fn_aziz_1995_no_neighborlist
 from jax_landscape.pimc_energy import build_pimc_energy_fn, build_pimc_energy_fn_xyz
 from jax_landscape.io.pimc import load_pimc_worldline_file, Path
+from jax_landscape.hessian_eigenvals import compute_hessian_eigenvalues
 
 # Enable 64-bit precision
 jax.config.update("jax_enable_x64", True)
@@ -34,6 +35,348 @@ def load_test_data(filename):
         'E_IS': data['E_IS']
     }
 
+
+# ============================================================================
+# Category A: Property-Based Tests (No Reference Data Required)
+# ============================================================================
+
+@pytest.mark.parametrize("data_file", [
+    'tests/test_data/aziz1995-N6-Nbeads1.json',
+])
+def test_local_minimum_properties_classical_no_neighborlist(data_file):
+    """
+    Rigorous test of local minimum properties without relying on reference data.
+
+    Tests 4 mathematical properties:
+    1. Zero gradient: ||grad(E)|| ≈ 0
+    2. Energy decrease: E_final < E_initial
+    3. Local stability: E(x + δ) ≥ E(x) for random perturbations δ
+    4. Hessian positive semi-definite: all eigenvalues ≥ 0
+    """
+    # Load test data and setup
+    data = load_test_data(data_file)
+    xyz_initial = data['xyz'] * nm_to_Angstrom
+    box_size = data['box'] * nm_to_Angstrom
+
+    print(f"\n{'='*70}")
+    print(f"Property-Based Test: Classical System (No Neighbor List)")
+    print(f"N = {xyz_initial.shape[0]} particles")
+    print(f"{'='*70}")
+
+    # Build energy function
+    displacement_fn, _ = space.periodic(box_size)
+    energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
+
+    # Run minimization
+    os.makedirs("tests/tmp", exist_ok=True)
+    log_file = f"tests/tmp/properties_classical_N{xyz_initial.shape[0]}.log"
+
+    results = find_local_minimum(
+        energy_fn=energy_fn,
+        xyz_initial=xyz_initial,
+        log_file=log_file,
+        log_every=10,
+        gtol=1e-6,
+        energy_change_tol=1e-8
+    )
+
+    print(f"\nMinimization completed:")
+    print(f"  Initial energy: {results['energy_initial']:.8f}")
+    print(f"  Final energy:   {results['energy_final']:.8f}")
+    print(f"  Energy change:  {results['energy_initial'] - results['energy_final']:.8f}")
+    print(f"  Iterations: {results['nit']}, Function evals: {results['nfev']}")
+
+    assert results['success'], f"Optimization failed: {results['message']}"
+
+    xyz_final = results['xyz_final']
+
+    # ========================================================================
+    # Property 1: Zero Gradient Condition
+    # ========================================================================
+    print(f"\n--- Property 1: Zero Gradient ---")
+
+    grad_fn = jax.grad(energy_fn)
+    gradient = grad_fn(xyz_final)
+    grad_norm = jnp.linalg.norm(gradient)
+
+    print(f"  Gradient norm: {grad_norm:.6e}")
+
+    grad_tolerance = 1e-5  # Slightly more relaxed than minimization gtol=1e-6
+    assert grad_norm < grad_tolerance, \
+        f"Gradient norm {grad_norm:.6e} exceeds tolerance {grad_tolerance:.6e}"
+    print(f"  ✓ Gradient norm < {grad_tolerance:.6e}")
+
+    # ========================================================================
+    # Property 2: Energy Decrease
+    # ========================================================================
+    print(f"\n--- Property 2: Energy Decrease ---")
+
+    energy_decreased = results['energy_final'] < results['energy_initial']
+    energy_decrease = results['energy_initial'] - results['energy_final']
+
+    print(f"  Energy decrease: {energy_decrease:.8f}")
+
+    assert energy_decreased, "Final energy should be lower than initial energy"
+    print(f"  ✓ Energy decreased")
+
+    # ========================================================================
+    # Property 3: Local Stability (Random Perturbations)
+    # ========================================================================
+    print(f"\n--- Property 3: Local Stability (Perturbation Test) ---")
+
+    # Test multiple perturbation magnitudes
+    perturbation_magnitudes = [0.01, 0.05, 0.1]  # Angstroms
+    n_perturbations_per_magnitude = 20
+
+    key = jax.random.PRNGKey(42)
+    energy_final_value = results['energy_final']
+
+    # Small tolerance for numerical noise
+    stability_tolerance = 1e-6
+
+    total_tests = 0
+    total_passed = 0
+
+    for magnitude in perturbation_magnitudes:
+        passed = 0
+        for i in range(n_perturbations_per_magnitude):
+            key, subkey = jax.random.split(key)
+
+            # Generate random perturbation
+            perturbation = jax.random.normal(subkey, shape=xyz_final.shape) * magnitude
+            xyz_perturbed = xyz_final + perturbation
+
+            # Compute energy of perturbed configuration
+            energy_perturbed = energy_fn(xyz_perturbed)
+
+            # Check if energy increased (or stayed same within tolerance)
+            if energy_perturbed >= energy_final_value - stability_tolerance:
+                passed += 1
+
+            total_tests += 1
+            total_passed += (energy_perturbed >= energy_final_value - stability_tolerance)
+
+        print(f"  Magnitude {magnitude:.3f} Å: {passed}/{n_perturbations_per_magnitude} perturbations have E ≥ E_final")
+
+    success_rate = total_passed / total_tests
+    print(f"  Overall: {total_passed}/{total_tests} tests passed ({success_rate*100:.1f}%)")
+
+    # Require at least 95% of perturbations to increase energy
+    assert success_rate >= 0.95, \
+        f"Only {success_rate*100:.1f}% of perturbations increased energy (expected ≥95%)"
+    print(f"  ✓ Local stability verified (≥95% perturbations increase energy)")
+
+    # ========================================================================
+    # Property 4: Hessian Positive Semi-Definite
+    # ========================================================================
+    print(f"\n--- Property 4: Hessian Positive Semi-Definite ---")
+
+    hessian_result = compute_hessian_eigenvalues(
+        energy_fn,
+        xyz_final,
+        return_hessian=False,
+        return_eigenvectors=False
+    )
+
+    eigenvalues = hessian_result['eigenvalues']
+
+    # Count near-zero eigenvalues (expected: ~3 for translational modes in periodic box)
+    near_zero_threshold = 1e-6
+    n_near_zero = jnp.sum(jnp.abs(eigenvalues) < near_zero_threshold)
+
+    # Check all eigenvalues are non-negative (allowing small numerical error)
+    eigenvalue_tolerance = -1e-7  # Tolerance for numerical precision
+    min_eigenvalue = jnp.min(eigenvalues)
+    all_positive = jnp.all(eigenvalues >= eigenvalue_tolerance)
+
+    print(f"  Total eigenvalues: {len(eigenvalues)}")
+    print(f"  Near-zero eigenvalues (|λ| < {near_zero_threshold:.0e}): {n_near_zero}")
+    print(f"  Min eigenvalue: {min_eigenvalue:.6e}")
+    print(f"  Max eigenvalue: {jnp.max(eigenvalues):.6e}")
+
+    assert all_positive, \
+        f"Found negative eigenvalue {min_eigenvalue:.6e} below tolerance {eigenvalue_tolerance:.6e}"
+    print(f"  ✓ All eigenvalues ≥ {eigenvalue_tolerance:.6e} (positive semi-definite)")
+
+    print(f"\n{'='*70}")
+    print(f"All 4 properties verified ✓")
+    print(f"{'='*70}")
+
+
+@pytest.mark.parametrize("wl_file", [
+    'tests/test_data/N2-Nbeads3-cycle1.dat',
+])
+def test_local_minimum_properties_pimc(wl_file):
+    """
+    Rigorous test of local minimum properties for PIMC without reference data.
+
+    Tests 4 mathematical properties:
+    1. Zero gradient: ||grad(U_RP)|| ≈ 0
+    2. Energy decrease: U_RP_final < U_RP_initial
+    3. Local stability: U_RP(x + δ) ≥ U_RP(x) for random perturbations δ
+    4. Hessian positive semi-definite: all eigenvalues ≥ 0
+    """
+    # Load PIMC data
+    box_size_angstrom = 10.0
+    paths_dict = load_pimc_worldline_file(wl_file, Lx=box_size_angstrom, Ly=box_size_angstrom, Lz=box_size_angstrom)
+    path = paths_dict[0]
+
+    M, N, _ = path.beadCoord.shape
+
+    print(f"\n{'='*70}")
+    print(f"Property-Based Test: PIMC System")
+    print(f"Time slices (M): {M}, Particles (N): {N}, Total beads: {M*N}")
+    print(f"{'='*70}")
+
+    # Setup energy functions
+    displacement_fn, _ = space.periodic(box_size_angstrom)
+    classical_energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
+
+    # PIMC parameters
+    beta = 10.0
+    hbar = 7.638
+    mass = 4.0026
+
+    # Build PIMC energy
+    pimc_energy_fn = build_pimc_energy_fn(displacement_fn, classical_energy_fn)
+    minimization_energy_fn, path_template = build_pimc_energy_fn_xyz(
+        pimc_energy_fn, path, beta, hbar, mass
+    )
+
+    xyz_initial = path.beadCoord
+
+    # Run minimization
+    os.makedirs("tests/tmp", exist_ok=True)
+    log_file = f"tests/tmp/properties_pimc_M{M}_N{N}.log"
+
+    results = find_local_minimum(
+        energy_fn=minimization_energy_fn,
+        xyz_initial=xyz_initial,
+        log_file=log_file,
+        log_every=10,
+        gtol=1e-6,
+        energy_change_tol=1e-8,
+        maxiter=10000
+    )
+
+    print(f"\nMinimization completed:")
+    print(f"  Initial energy (U_RP): {results['energy_initial']:.8f}")
+    print(f"  Final energy (U_RP):   {results['energy_final']:.8f}")
+    print(f"  Energy change:         {results['energy_initial'] - results['energy_final']:.8f}")
+    print(f"  Iterations: {results['nit']}, Function evals: {results['nfev']}")
+
+    assert results['success'], f"Optimization failed: {results['message']}"
+
+    xyz_final = results['xyz_final']
+
+    # ========================================================================
+    # Property 1: Zero Gradient Condition
+    # ========================================================================
+    print(f"\n--- Property 1: Zero Gradient ---")
+
+    grad_fn = jax.grad(lambda xyz: minimization_energy_fn(xyz)['energy'])
+    gradient = grad_fn(xyz_final)
+    grad_norm = jnp.linalg.norm(gradient)
+
+    print(f"  Gradient norm: {grad_norm:.6e}")
+
+    grad_tolerance = 1e-5  # Slightly more relaxed than minimization gtol=1e-6
+    assert grad_norm < grad_tolerance, \
+        f"Gradient norm {grad_norm:.6e} exceeds tolerance {grad_tolerance:.6e}"
+    print(f"  ✓ Gradient norm < {grad_tolerance:.6e}")
+
+    # ========================================================================
+    # Property 2: Energy Decrease
+    # ========================================================================
+    print(f"\n--- Property 2: Energy Decrease ---")
+
+    energy_decreased = results['energy_final'] < results['energy_initial']
+    energy_decrease = results['energy_initial'] - results['energy_final']
+
+    print(f"  Energy decrease: {energy_decrease:.8f}")
+
+    assert energy_decreased, "Final energy should be lower than initial energy"
+    print(f"  ✓ Energy decreased")
+
+    # ========================================================================
+    # Property 3: Local Stability (Random Perturbations)
+    # ========================================================================
+    print(f"\n--- Property 3: Local Stability (Perturbation Test) ---")
+
+    perturbation_magnitudes = [0.01, 0.05, 0.1]
+    n_perturbations_per_magnitude = 20
+
+    key = jax.random.PRNGKey(42)
+    energy_final_value = results['energy_final']
+    stability_tolerance = 1e-6
+
+    total_tests = 0
+    total_passed = 0
+
+    for magnitude in perturbation_magnitudes:
+        passed = 0
+        for i in range(n_perturbations_per_magnitude):
+            key, subkey = jax.random.split(key)
+
+            perturbation = jax.random.normal(subkey, shape=xyz_final.shape) * magnitude
+            xyz_perturbed = xyz_final + perturbation
+
+            energy_result = minimization_energy_fn(xyz_perturbed)
+            energy_perturbed = energy_result['energy']
+
+            if energy_perturbed >= energy_final_value - stability_tolerance:
+                passed += 1
+
+            total_tests += 1
+            total_passed += (energy_perturbed >= energy_final_value - stability_tolerance)
+
+        print(f"  Magnitude {magnitude:.3f} Å: {passed}/{n_perturbations_per_magnitude} perturbations have E ≥ E_final")
+
+    success_rate = total_passed / total_tests
+    print(f"  Overall: {total_passed}/{total_tests} tests passed ({success_rate*100:.1f}%)")
+
+    assert success_rate >= 0.95, \
+        f"Only {success_rate*100:.1f}% of perturbations increased energy (expected ≥95%)"
+    print(f"  ✓ Local stability verified (≥95% perturbations increase energy)")
+
+    # ========================================================================
+    # Property 4: Hessian Positive Semi-Definite
+    # ========================================================================
+    print(f"\n--- Property 4: Hessian Positive Semi-Definite ---")
+
+    hessian_result = compute_hessian_eigenvalues(
+        minimization_energy_fn,
+        xyz_final,
+        return_hessian=False,
+        return_eigenvectors=False
+    )
+
+    eigenvalues = hessian_result['eigenvalues']
+
+    near_zero_threshold = 1e-6
+    n_near_zero = jnp.sum(jnp.abs(eigenvalues) < near_zero_threshold)
+
+    eigenvalue_tolerance = -1e-7  # Tolerance for numerical precision
+    min_eigenvalue = jnp.min(eigenvalues)
+    all_positive = jnp.all(eigenvalues >= eigenvalue_tolerance)
+
+    print(f"  Total eigenvalues: {len(eigenvalues)}")
+    print(f"  Near-zero eigenvalues (|λ| < {near_zero_threshold:.0e}): {n_near_zero}")
+    print(f"  Min eigenvalue: {min_eigenvalue:.6e}")
+    print(f"  Max eigenvalue: {jnp.max(eigenvalues):.6e}")
+
+    assert all_positive, \
+        f"Found negative eigenvalue {min_eigenvalue:.6e} below tolerance {eigenvalue_tolerance:.6e}"
+    print(f"  ✓ All eigenvalues ≥ {eigenvalue_tolerance:.6e} (positive semi-definite)")
+
+    print(f"\n{'='*70}")
+    print(f"All 4 properties verified ✓")
+    print(f"{'='*70}")
+
+
+# ============================================================================
+# Category B: Reference Data Tests
+# ============================================================================
 
 @pytest.mark.parametrize("data_file", [
     'tests/test_data/aziz1995-N6-Nbeads1.json',

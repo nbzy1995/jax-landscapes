@@ -8,7 +8,7 @@ from jax_md import space
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_default_dtype_bits", "64")
 
-from jax_landscape.hessian_analysis import compute_hessian_eigenvalues
+from jax_landscape.hessian_eigenvals import compute_hessian_eigenvalues
 from jax_landscape.energy_fun import build_energy_fn_aziz_1995_no_neighborlist
 from jax_landscape.pimc_energy import build_pimc_energy_fn, build_pimc_energy_fn_xyz
 from jax_landscape.io.pimc import load_pimc_worldline_file

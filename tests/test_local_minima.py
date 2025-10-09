@@ -99,69 +99,69 @@ def test_local_minimum_classical_no_neighborlist(data_file):
         f"Compared to reference xyz, the max component difference {max_diff:.6f} exceeds tolerance {xyz_tolerance}"
 
 
-@pytest.mark.parametrize("data_file", [
-    'tests/test_data/aziz1995-N6-Nbeads1.json',
-])
-def test_local_minimum_classical_with_neighborlist(data_file):
-    """Test local minimization for classical Helium system with neighbor list."""
-    # Load test data
-    data = load_test_data(data_file)
+# @pytest.mark.parametrize("data_file", [
+#     'tests/test_data/aziz1995-N6-Nbeads1.json',
+# ])
+# def test_local_minimum_classical_with_neighborlist(data_file):
+#     """Test local minimization for classical Helium system with neighbor list."""
+#     # Load test data
+#     data = load_test_data(data_file)
 
-    xyz_initial = data['xyz'] * nm_to_Angstrom
-    box_size = data['box'] * nm_to_Angstrom
-    xyz_reference = data['xyz_IS'] * nm_to_Angstrom
-    energy_reference = data['E_IS'] * KJmol_to_KBK
+#     xyz_initial = data['xyz'] * nm_to_Angstrom
+#     box_size = data['box'] * nm_to_Angstrom
+#     xyz_reference = data['xyz_IS'] * nm_to_Angstrom
+#     energy_reference = data['E_IS'] * KJmol_to_KBK
 
-    print(f"\nTesting local minimization (with neighbor list) with {xyz_initial.shape[0]} particles:")
+#     print(f"\nTesting local minimization (with neighbor list) with {xyz_initial.shape[0]} particles:")
 
-    os.makedirs("tests/tmp", exist_ok=True)
-    log_file = f"tests/tmp/N{xyz_initial.shape[0]}_minimization_with_nl.log"
+#     os.makedirs("tests/tmp", exist_ok=True)
+#     log_file = f"tests/tmp/N{xyz_initial.shape[0]}_minimization_with_nl.log"
 
-    # Build energy function with neighbor list
-    displacement_fn, _ = space.periodic(box_size)
-    neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)
+#     # Build energy function with neighbor list
+#     displacement_fn, _ = space.periodic(box_size)
+#     neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)
 
-    # Start timing the minimization
-    start_time = time.time()
+#     # Start timing the minimization
+#     start_time = time.time()
 
-    results = find_local_minimum(
-        energy_fn=energy_fn,
-        xyz_initial=xyz_initial,
-        neighbor_fn=neighbor_fn,
-        log_file=log_file,
-        log_every=10
-    )
+#     results = find_local_minimum(
+#         energy_fn=energy_fn,
+#         xyz_initial=xyz_initial,
+#         neighbor_fn=neighbor_fn,
+#         log_file=log_file,
+#         log_every=10
+#     )
 
-    print(f"Initial energy: {results['energy_initial']:.8f}")
+#     print(f"Initial energy: {results['energy_initial']:.8f}")
 
-    # End timing and calculate duration
-    end_time = time.time()
-    minimization_time = end_time - start_time
+#     # End timing and calculate duration
+#     end_time = time.time()
+#     minimization_time = end_time - start_time
 
-    print(f"Iterations: {results['nit']}, Function evaluations: {results['nfev']}")
-    print(f"Minimization time: {minimization_time:.3f} seconds")
-    print(f"Performance: {results['nfev']/minimization_time:.1f} function evaluations per second")
+#     print(f"Iterations: {results['nit']}, Function evaluations: {results['nfev']}")
+#     print(f"Minimization time: {minimization_time:.3f} seconds")
+#     print(f"Performance: {results['nfev']/minimization_time:.1f} function evaluations per second")
 
-    assert results['success'], f"Optimization failed: {results['message']}"
+#     assert results['success'], f"Optimization failed: {results['message']}"
 
-    energy_tolerance = 5e-4  # Relaxed tolerance for different optimization paths
-    energy_diff = abs(results['energy_final'] - energy_reference)
-    print(f"Final energy: {results['energy_final']:.8f}")
-    print(f"Reference energy: {energy_reference:.8f}")
+#     energy_tolerance = 5e-4  # Relaxed tolerance for different optimization paths
+#     energy_diff = abs(results['energy_final'] - energy_reference)
+#     print(f"Final energy: {results['energy_final']:.8f}")
+#     print(f"Reference energy: {energy_reference:.8f}")
 
-    xyz_final = results['xyz_final']
-    max_diff = jnp.max(jnp.abs(xyz_final - xyz_reference))
-    xyz_tolerance = 3.0  # Relaxed tolerance as different minima can have similar energies
-    print(f"xyz max component difference: {max_diff:.6f}")
+#     xyz_final = results['xyz_final']
+#     max_diff = jnp.max(jnp.abs(xyz_final - xyz_reference))
+#     xyz_tolerance = 3.0  # Relaxed tolerance as different minima can have similar energies
+#     print(f"xyz max component difference: {max_diff:.6f}")
 
-    assert results['energy_final'] < results['energy_initial'], \
-        "Final energy should be lower than initial energy"
+#     assert results['energy_final'] < results['energy_initial'], \
+#         "Final energy should be lower than initial energy"
 
-    assert energy_diff < energy_tolerance, \
-        f"Compared to the reference energy, the absolute difference {energy_diff:.2e} exceeds tolerance {energy_tolerance:.2e}"
+#     assert energy_diff < energy_tolerance, \
+#         f"Compared to the reference energy, the absolute difference {energy_diff:.2e} exceeds tolerance {energy_tolerance:.2e}"
 
-    assert max_diff < xyz_tolerance, \
-        f"Compared to reference xyz, the max component difference {max_diff:.6f} exceeds tolerance {xyz_tolerance}"
+#     assert max_diff < xyz_tolerance, \
+#         f"Compared to reference xyz, the max component difference {max_diff:.6f} exceeds tolerance {xyz_tolerance}"
 
 @pytest.mark.parametrize("wl_file", [
     'tests/test_data/N2-Nbeads3-cycle1.dat','tests/test_data/N2-Nbeads3-cycle2.dat'

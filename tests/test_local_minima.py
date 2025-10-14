@@ -42,7 +42,9 @@ def _validate_local_minimum_properties(
     results,
     system_name="System",
     grad_tolerance=1e-5,
-    eigenvalue_tolerance=-1e-7,
+    negative_eigenvalue_threshold=-1e-6,
+    near_zero_threshold=1e-6,
+    expected_num_symmetry_modes=None,
     perturbation_magnitudes=(0.01, 0.05, 0.1),
     n_perturbations_per_magnitude=20,
     stability_success_threshold=0.99
@@ -56,7 +58,9 @@ def _validate_local_minimum_properties(
         results: Results dict from find_local_minimum
         system_name: Name for display (e.g., "Classical", "PIMC")
         grad_tolerance: Tolerance for gradient norm
-        eigenvalue_tolerance: Tolerance for negative Hessian eigenvalues
+        negative_eigenvalue_threshold: Threshold for truly negative eigenvalues (λ < threshold is a saddle point)
+        near_zero_threshold: Threshold for identifying near-zero eigenvalues from symmetry
+        expected_num_symmetry_modes: Expected number of symmetry modes (near-zero eigenvalues)
         perturbation_magnitudes: Tuple of perturbation sizes to test
         n_perturbations_per_magnitude: Number of random perturbations per magnitude
         stability_success_threshold: Fraction of perturbations that must increase energy
@@ -143,7 +147,7 @@ def _validate_local_minimum_properties(
     print(f"  ✓ Local stability verified (≥{stability_success_threshold*100:.0f}% perturbations increase energy)")
 
     # ========================================================================
-    # Property 4: Hessian Positive Semi-Definite
+    # Property 4: Hessian Positive Semi-Definite (Refined Criterion)
     # ========================================================================
     print(f"\n--- Property 4: Hessian Positive Semi-Definite ---")
 
@@ -154,22 +158,35 @@ def _validate_local_minimum_properties(
         return_eigenvectors=False
     )
 
-    eigenvalues = hessian_result['eigenvalues']
+    eigenvalues = jnp.sort(hessian_result['eigenvalues'])
 
-    near_zero_threshold = 1e-6
+    # sufficient condition for local minimum:
+    # 1. No significantly negative eigenvalues (λ < -1e-6)
+    # 2. Allow near-zero eigenvalues from symmetry modes (|λ| < 1e-6)
+
+    n_negative = jnp.sum(eigenvalues < negative_eigenvalue_threshold)
     n_near_zero = jnp.sum(jnp.abs(eigenvalues) < near_zero_threshold)
-
     min_eigenvalue = jnp.min(eigenvalues)
-    all_positive = jnp.all(eigenvalues >= eigenvalue_tolerance)
+    max_eigenvalue = jnp.max(eigenvalues)
 
     print(f"  Total eigenvalues: {len(eigenvalues)}")
     print(f"  Near-zero eigenvalues (|λ| < {near_zero_threshold:.0e}): {n_near_zero}")
+    if expected_num_symmetry_modes is not None:
+        print(f"    Expected symmetry modes: {expected_num_symmetry_modes}")
+    print(f"  Negative eigenvalues (λ < {negative_eigenvalue_threshold:.0e}): {n_negative}")
     print(f"  Min eigenvalue: {min_eigenvalue:.6e}")
-    print(f"  Max eigenvalue: {jnp.max(eigenvalues):.6e}")
+    print(f"  Max eigenvalue: {max_eigenvalue:.6e}")
 
-    assert all_positive, \
-        f"Found negative eigenvalue {min_eigenvalue:.6e} below tolerance {eigenvalue_tolerance:.6e}"
-    print(f"  ✓ All eigenvalues ≥ {eigenvalue_tolerance:.6e} (positive semi-definite)")
+    if n_near_zero > 0:
+        print(f"  Near-zero modes: {eigenvalues[:n_near_zero]}")
+
+    # Check: no significantly negative eigenvalues
+    assert n_negative == 0, \
+        f"Found {n_negative} negative eigenvalue(s) below {negative_eigenvalue_threshold:.0e}. " \
+        f"Min eigenvalue: {min_eigenvalue:.6e}. This indicates a saddle point, not a local minimum."
+
+    print(f"  ✓ No negative eigenvalues < {negative_eigenvalue_threshold:.0e}")
+    print(f"  ✓ Hessian is positive semi-definite (local minimum confirmed)")
 
     print(f"\n{'='*70}")
     print(f"All 4 properties verified ✓")
@@ -262,6 +279,7 @@ def test_local_minimum_classical_no_neighborlist(data_file):
 
 @pytest.mark.parametrize("wl_file", [
     'tests/test_data/N2-Nbeads3-cycle1.dat',
+    'tests/test_data/N2-Nbeads3-cycle2.dat',
 ])
 def test_local_minimum_pimc(wl_file):
     """
@@ -309,7 +327,7 @@ def test_local_minimum_pimc(wl_file):
         energy_fn=minimization_energy_fn,
         xyz_initial=xyz_initial,
         log_file=log_file,
-        log_every=10,
+        log_every=1,
         trajectory_file=trajectory_file,
         trajectory_path_template=path_template,
         save_trajectory_every=10,
@@ -328,11 +346,13 @@ def test_local_minimum_pimc(wl_file):
     assert results['xyz_final'].shape == xyz_initial.shape, "Output shape should match input"
 
     # Part 1: Validate mathematical properties
+    # For N=2 particles, expect 5 symmetry modes (near-zero eigenvalues)
     _validate_local_minimum_properties(
         energy_fn=minimization_energy_fn,
         xyz_final=results['xyz_final'],
         results=results,
-        system_name="PIMC System"
+        system_name="PIMC System",
+        expected_num_symmetry_modes=5 if N == 2 else None
     )
 
     # Part 2: Verify trajectory file

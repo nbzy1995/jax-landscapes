@@ -315,10 +315,12 @@ def test_local_minimum_pimc(wl_file):
 
     xyz_initial = path.beadCoord
 
-    # Setup files
+    # Setup files with unique names (extract cycle info from filename)
     os.makedirs("tests/tmp", exist_ok=True)
-    log_file = f"tests/tmp/pimc_M{M}_N{N}.log"
-    trajectory_file = f"tests/tmp/pimc_M{M}_N{N}.wl.dat"
+    # Extract basename without extension for unique identifier
+    base_name = os.path.splitext(os.path.basename(wl_file))[0]  # e.g., "N2-Nbeads3-cycle1"
+    log_file = f"tests/tmp/{base_name}.log"
+    trajectory_file = f"tests/tmp/{base_name}.wl.dat"
 
     # Run minimization with trajectory saving
     start_time = time.time()

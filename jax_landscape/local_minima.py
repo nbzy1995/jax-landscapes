@@ -9,11 +9,6 @@ Usage Examples:
     energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
     result = find_local_minimum(energy_fn, xyz_initial)
 
-    # Classical with neighbor list
-    displacement_fn, _ = space.periodic(box_size)
-    neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)
-    result = find_local_minimum(energy_fn, xyz_initial, neighbor_fn=neighbor_fn)
-
     # PIMC minimization with trajectory saving
     from jax_landscape.pimc_energy import build_pimc_energy_fn_xyz
     pimc_energy_fn = build_pimc_energy_fn(displacement_fn, classical_energy_fn)
@@ -243,9 +238,9 @@ def _create_hessp_function(energy_fn, xyz_shape, is_pimc_energy):
 def find_local_minimum(
     energy_fn,
     xyz_initial,
-    neighbor_fn=None,
     method='trust-ncg',
     gtol=1e-8,
+    energy_change_tol=1e-2,
     maxiter=50000,
     maxfun=100000,
     log_file=None,
@@ -256,43 +251,46 @@ def find_local_minimum(
     initial_iteration=0,
     resume_mode=False,
     metadata=None,
-    energy_change_tol=1e-2,
     escape_saddles=True,
     max_saddle_escapes=5,
     saddle_eigenvalue_threshold=-1e-6,
-    perturbation_magnitudes=(0.01, 0.05, 0.1, 0.2)
+    perturbation_magnitudes=(0.01, 0.05, 0.1, 0.2),
+    **kwargs
 ):
     """
     Find local minimum (inherent structure) of a system using scipy.optimize.minimize.
 
+    WARNING: Do NOT use energy functions with neighbor lists during minimization.
+             During optimization, particles can move outside the neighbor list cell,
+             causing incorrect energy/gradient calculations. Always use energy functions
+             without neighbor lists (e.g., build_energy_fn_aziz_1995_no_neighborlist).
+
     Args:
-        energy_fn: Pre-built energy function mapping xyz -> scalar energy.
-                   If neighbor_fn is provided, should accept (xyz, neighbor=nbrs).
+        energy_fn: Pre-built energy function mapping xyz -> scalar energy (or dict for PIMC).
+                   MUST be built without neighbor lists.
         xyz_initial: Initial coordinates, shape (N, 3) for classical or (M, N, 3) for PIMC
-        neighbor_fn: Optional neighbor list allocation function. If provided, neighbor lists
-                     will be automatically reallocated during optimization.
-        method: Optimization method for scipy.optimize.minimize
-        gtol: gradient tolerance for convergence
-        maxiter: Maximum number of iterations
-        maxfun: Maximum number of function evaluations
+        method: Optimization method for scipy.optimize.minimize (default: 'trust-ncg')
+        gtol: Gradient tolerance for convergence (default: 1e-8)
+        energy_change_tol: Absolute energy change tolerance for convergence (default 1e-2).
+                    Converges when: abs(E_new - E_old) < energy_change_tol AND grad_norm < gtol
+        maxiter: Maximum number of iterations (default: 50000)
+        maxfun: Maximum number of function evaluations (default: 100000)
         log_file: Optional file path to log optimization details.
-        log_every: Log progress every N iterations.
+        log_every: Log progress every N iterations (default: 10).
         trajectory_file: Optional file path to save minimization trajectory in PIMC worldline format.
                         Only used if trajectory_path_template is also provided.
         trajectory_path_template: Optional Path object providing connectivity structure for PIMC trajectory output.
-        save_trajectory_every: Save trajectory snapshot every N iterations (default 10).
-        initial_iteration: Starting iteration number (for resume functionality, default 0).
+        save_trajectory_every: Save trajectory snapshot every N iterations (default: 10).
+        initial_iteration: Starting iteration number (for resume functionality, default: 0).
         resume_mode: If True, append to existing log/trajectory files instead of overwriting.
         metadata: Optional dict of metadata to write as comments in log file (e.g., system params).
-        energy_change_tol: Absolute energy change tolerance for convergence (default 1e-2).
-                          Converges when: abs(E_new - E_old) < energy_change_tol AND grad_norm < gtol
         escape_saddles: If True, automatically detect and escape saddle points using Hessian eigenanalysis.
                        Recommended for trust-region methods. Adds computational cost due to Hessian computation.
-                       Default: False (disabled for backward compatibility).
-        max_saddle_escapes: Maximum number of saddle-escape attempts (default 5).
-        saddle_eigenvalue_threshold: Eigenvalues below this are considered negative (default -1e-6).
+                       (default: True).
+        max_saddle_escapes: Maximum number of saddle-escape attempts (default: 5).
+        saddle_eigenvalue_threshold: Eigenvalues below this are considered negative (default: -1e-6).
         perturbation_magnitudes: Tuple of perturbation sizes to try along negative eigenvector
-                                (default (0.01, 0.05, 0.1, 0.2)).
+                                (default: (0.01, 0.05, 0.1, 0.2)).
 
     Returns:
         dict: Optimization results containing:
@@ -310,19 +308,21 @@ def find_local_minimum(
     Notes:
         - Saddle escape is computationally expensive (requires full Hessian computation)
         - Recommended for small-medium systems (< 100 degrees of freedom)
-        - Not compatible with neighbor lists
         - Trajectory continues across saddle escapes (perturbation jumps are logged)
     """
 
-    # Store original initial configuration for energy_initial reporting
-    xyz_initial_original = xyz_initial
+    # Check if user accidentally passed neighbor_fn (now prohibited)
+    if 'neighbor_fn' in kwargs and kwargs['neighbor_fn'] is not None:
+        raise ValueError(
+            "neighbor_fn is no longer supported in find_local_minimum(). "
+            "During minimization, particles can move outside the neighbor list cell, "
+            "causing incorrect energy/gradient calculations. "
+            "Please use energy functions without neighbor lists "
+            "(e.g., build_energy_fn_aziz_1995_no_neighborlist)."
+        )
 
     # Calculate initial energy and detect if PIMC energy function
-    if neighbor_fn is not None:
-        initial_nbrs = neighbor_fn.allocate(xyz_initial)
-        initial_result = energy_fn(xyz_initial, neighbor=initial_nbrs)
-    else:
-        initial_result = energy_fn(xyz_initial)
+    initial_result = energy_fn(xyz_initial)
 
     # Detect if this is a PIMC energy function (returns dict)
     is_pimc_energy = isinstance(initial_result, dict)
@@ -452,14 +452,8 @@ def find_local_minimum(
             current_xyz[0] = xyz_flat
             xyz = jnp.array(xyz_flat, dtype=jnp.float64).reshape(xyz_initial.shape)
 
-            if neighbor_fn is not None:
-                # Reallocate neighbor list for current coordinates
-                nbrs = neighbor_fn.allocate(xyz)
-                result = energy_fn(xyz, neighbor=nbrs)
-                grad = jax.grad(lambda x: energy_fn(x, neighbor=nbrs) if not is_pimc_energy else energy_fn(x, neighbor=nbrs)['energy'], argnums=0)(xyz)
-            else:
-                result = energy_fn(xyz)
-                grad = jax.grad(lambda x: energy_fn(x) if not is_pimc_energy else energy_fn(x)['energy'])(xyz)
+            result = energy_fn(xyz)
+            grad = jax.grad(lambda x: energy_fn(x) if not is_pimc_energy else energy_fn(x)['energy'])(xyz)
 
             # Extract scalar energy from result (handle both scalar and dict)
             if is_pimc_energy:
@@ -515,13 +509,6 @@ def find_local_minimum(
         # Detect trust-region methods that require Hessian information
         trust_region_methods = ['trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']
         uses_trust_region = method in trust_region_methods
-
-        # Warn if neighbor_fn is used with trust-region methods (not yet supported)
-        if uses_trust_region and neighbor_fn is not None:
-            raise NotImplementedError(
-                f"Trust-region method '{method}' with neighbor lists is not yet supported. "
-                "Please use method='L-BFGS-B' with neighbor lists, or disable neighbor lists."
-            )
 
         # Setup optimization options (method-specific)
         options = {

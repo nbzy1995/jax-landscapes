@@ -103,21 +103,20 @@ The `Path` class represents a single PIMC configuration with:
 
 `find_local_minimum()` provides a unified interface for minimizing any energy function:
 - Takes pre-built `energy_fn(xyz)` directly (not factory)
-- Optional `neighbor_fn` for automatic neighbor list management during optimization
+- **WARNING: Do NOT use energy functions with neighbor lists during minimization**
+  - Particles can move outside the neighbor list cell during optimization
+  - This causes incorrect energy/gradient calculations
+  - Always use `build_energy_fn_aziz_1995_no_neighborlist()` for minimization
 - Supports classical and PIMC energy functions via same interface
 - Returns dict with `xyz_final`, `energy_final`, `energy_initial`, convergence info
 - Can log optimization progress to file
 
 **Usage**:
 ```python
-# Classical without neighbor list
+# Classical minimization (always use no_neighborlist version)
 displacement_fn, _ = space.periodic(box_size)
 energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
 result = find_local_minimum(energy_fn, xyz_initial)
-
-# Classical with neighbor list
-neighbor_fn, energy_fn = build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)
-result = find_local_minimum(energy_fn, xyz_initial, neighbor_fn=neighbor_fn)
 
 # PIMC with trajectory saving
 from jax_landscape.pimc_energy import build_pimc_energy_fn_xyz

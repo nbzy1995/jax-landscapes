@@ -174,11 +174,8 @@ def _validate_local_minimum_properties(
     if expected_num_symmetry_modes is not None:
         print(f"    Expected symmetry modes: {expected_num_symmetry_modes}")
     print(f"  Negative eigenvalues (λ < {negative_eigenvalue_threshold:.0e}): {n_negative}")
-    print(f"  Min eigenvalue: {min_eigenvalue:.6e}")
+    print(f"  Lowest 6 eigenvalues: {eigenvalues[:6]}")
     print(f"  Max eigenvalue: {max_eigenvalue:.6e}")
-
-    if n_near_zero > 0:
-        print(f"  Near-zero modes: {eigenvalues[:n_near_zero]}")
 
     # Check: no significantly negative eigenvalues
     assert n_negative == 0, \
@@ -302,8 +299,8 @@ def test_local_minimum_pimc(wl_file):
     displacement_fn, _ = space.periodic(box_size_angstrom)
     classical_energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
 
-    # PIMC parameters (He-4 at moderate temperature)
-    beta = 10.0
+    # PIMC parameters (He-4 at T ≈ 1 K)
+    beta = 1.0  # 1/(kB*T) where T ≈ 1 K
     hbar = 7.638
     mass = 4.0026
 
@@ -352,7 +349,7 @@ def test_local_minimum_pimc(wl_file):
         xyz_final=results['xyz_final'],
         results=results,
         system_name="PIMC System",
-        expected_num_symmetry_modes=5 if N == 2 else None
+        expected_num_symmetry_modes=5 if N == 2 else 3
     )
 
     # Part 2: Verify trajectory file

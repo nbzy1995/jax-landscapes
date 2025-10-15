@@ -228,6 +228,9 @@ def test_local_minimum_classical_no_neighborlist(data_file):
         energy_fn=energy_fn,
         xyz_initial=xyz_initial,
         log_file=log_file,
+        method='trust-ncg',
+        escape_saddles=True,
+        max_saddle_escapes=5,
         log_every=10,
         gtol=1e-6,
         energy_change_tol=1e-8
@@ -323,6 +326,9 @@ def test_local_minimum_pimc(wl_file):
     results = find_local_minimum(
         energy_fn=minimization_energy_fn,
         xyz_initial=xyz_initial,
+        method='trust-ncg',
+        escape_saddles=True,
+        max_saddle_escapes=5,
         log_file=log_file,
         log_every=1,
         trajectory_file=trajectory_file,
@@ -342,13 +348,22 @@ def test_local_minimum_pimc(wl_file):
     assert results['success'], f"Optimization failed: {results['message']}"
     assert results['xyz_final'].shape == xyz_initial.shape, "Output shape should match input"
 
+    # Check saddle-escape results
+    assert results['final_is_saddle'] == False, \
+        f"Saddle escape should find true local minimum, not saddle. Min eigenvalue: {results['final_min_eigenvalue']}"
+
+    print(f"\nSaddle escape results:")
+    print(f"  Saddle escapes performed: {results['saddle_escapes_performed']}")
+    print(f"  Final is saddle: {results['final_is_saddle']}")
+    print(f"  Final min eigenvalue: {results['final_min_eigenvalue']:.6e}")
+
     # Part 1: Validate mathematical properties
     # For N=2 particles, expect 5 symmetry modes (near-zero eigenvalues)
     _validate_local_minimum_properties(
         energy_fn=minimization_energy_fn,
         xyz_final=results['xyz_final'],
         results=results,
-        system_name="PIMC System",
+        system_name="PIMC System (trust-ncg with saddle escape)",
         expected_num_symmetry_modes=5 if N == 2 else 3
     )
 

@@ -328,6 +328,38 @@ def find_local_minimum(
     is_pimc_energy = isinstance(initial_result, dict)
     initial_energy = initial_result['energy'] if is_pimc_energy else initial_result
 
+    # Cache shape information for flatten/reshape utilities
+    xyz_shape = xyz_initial.shape
+
+    def _energy_scalar_from_flat(x_flat):
+        """Scalar energy for flattened coordinates (JAX-friendly)."""
+        xyz = x_flat.reshape(xyz_shape)
+        result = energy_fn(xyz)
+        return result['energy'] if is_pimc_energy else result
+
+    # Pre-define gradient function so we compile it only once.
+    grad_fn = jax.grad(_energy_scalar_from_flat)
+
+    def _energy_components_from_flat(x_flat):
+        """Return energy and optional components from flattened coordinates."""
+        xyz = x_flat.reshape(xyz_shape)
+        result = energy_fn(xyz)
+        if is_pimc_energy:
+            return result['energy'], result['E_sp'], result['E_int']
+        return result, None, None
+
+    def _evaluate_state_from_flat(x_flat_np):
+        """
+        Evaluate energy components and gradient given a numpy-flattened array.
+
+        Returns:
+            energy (float-like), grad (jnp.ndarray), E_sp, E_int
+        """
+        x_flat_jnp = jnp.asarray(x_flat_np)
+        energy_val, E_sp_val, E_int_val = _energy_components_from_flat(x_flat_jnp)
+        grad_val = grad_fn(x_flat_jnp)
+        return energy_val, grad_val, E_sp_val, E_int_val
+
     # Cumulative tracking across all saddle-escape attempts
     cumulative_iterations = initial_iteration
     cumulative_nfev = 0
@@ -424,7 +456,6 @@ def find_local_minimum(
 
     # BEGIN SADDLE-ESCAPE LOOP
     for escape_attempt in range(max_saddle_escapes + 1):
-        # Log escape attempt header (for attempts > 0)
         if log_file and escape_attempt > 0:
             with open(log_file, 'a') as f:
                 f.write("#\n")
@@ -432,85 +463,133 @@ def find_local_minimum(
                 f.write(f"# SADDLE ESCAPE ATTEMPT {escape_attempt}\n")
                 f.write("# " + "="*66 + "\n")
                 f.write("#\n")
+        # --- Per-attempt state -------------------------------------------------
+        attempt_start_step = cumulative_iterations
 
-        # Per-attempt tracking variables
-        iteration_count = [cumulative_iterations]
-        current_xyz = [xyz_initial.flatten()]
+        start_x_flat = np.asarray(xyz_initial).reshape(-1)
+        start_energy_val, start_E_sp_val, start_E_int_val = _energy_components_from_flat(jnp.asarray(start_x_flat))
+        start_energy = float(np.asarray(start_energy_val))
+        start_E_sp = float(np.asarray(start_E_sp_val)) if is_pimc_energy and start_E_sp_val is not None else None
+        start_E_int = float(np.asarray(start_E_int_val)) if is_pimc_energy and start_E_int_val is not None else None
 
-        # Track convergence criteria (energy change and gradient norm)
-        convergence_state = {
-            'prev_energy': None,
-            'current_energy': None,
-            'grad_norm': None,
+        iterations_completed = [attempt_start_step]
+        last_logged_step = [attempt_start_step]
+        last_snapshot_step = [attempt_start_step]
+        raw_eval_counter = [0]
+
+        current_step = {
+            'energy': start_energy,
+            'grad_norm': 0.0,
+            'xyz': np.asarray(xyz_initial),
+            'E_sp': start_E_sp,
+            'E_int': start_E_int,
             'converged': False,
             'convergence_message': None
         }
 
-        def objective_function(xyz_flat):
-            """The objective is to minimize the total potential energy of the system"""
-            iteration_count[0] += 1
-            current_xyz[0] = xyz_flat
-            xyz = jnp.array(xyz_flat, dtype=jnp.float64).reshape(xyz_initial.shape)
+        # Scratch space for the most recent evaluation returned by SciPy.
+        pending_eval = {
+            'x': None,
+            'energy': None,
+            'grad': None,
+            'grad_norm': None,
+            'E_sp': None,
+            'E_int': None,
+            'xyz': None
+        }
 
-            result = energy_fn(xyz)
-            grad = jax.grad(lambda x: energy_fn(x) if not is_pimc_energy else energy_fn(x)['energy'])(xyz)
-
-            # Extract scalar energy from result (handle both scalar and dict)
+        def refresh_pending_eval(x_flat_np):
+            energy_val, grad_val, E_sp_val, E_int_val = _evaluate_state_from_flat(x_flat_np)
+            grad_np = np.asarray(grad_val)
+            grad_np = grad_np.astype(float, copy=False)
+            pending_eval['x'] = np.asarray(x_flat_np, dtype=float).copy()
+            pending_eval['energy'] = float(np.asarray(energy_val))
+            pending_eval['grad'] = grad_np
+            pending_eval['grad_norm'] = float(np.linalg.norm(grad_np))
             if is_pimc_energy:
-                energy = result['energy']
-                E_sp = result['E_sp']
-                E_int = result['E_int']
+                pending_eval['E_sp'] = float(np.asarray(E_sp_val))
+                pending_eval['E_int'] = float(np.asarray(E_int_val))
             else:
-                energy = result
+                pending_eval['E_sp'] = None
+                pending_eval['E_int'] = None
+            pending_eval['xyz'] = pending_eval['x'].reshape(xyz_shape).copy()
+            return pending_eval
 
-            # Update convergence tracking
-            grad_norm = np.linalg.norm(grad.flatten())
-            convergence_state['prev_energy'] = convergence_state['current_energy']
-            convergence_state['current_energy'] = float(energy)
-            convergence_state['grad_norm'] = grad_norm
+        # --- Logging helpers ---------------------------------------------------
+        def log_iteration(step_idx, energy_val, grad_norm_val, E_sp_val=None, E_int_val=None, force=False):
+            if not log_file:
+                return
+            if not force:
+                if log_every <= 0 or (step_idx - initial_iteration) % log_every != 0:
+                    return
+            with open(log_file, 'a') as f:
+                if is_pimc_energy:
+                    f.write(f"{step_idx},{energy_val},{E_sp_val},{E_int_val},{grad_norm_val}\n")
+                else:
+                    f.write(f"{step_idx},{energy_val},{grad_norm_val}\n")
+            last_logged_step[0] = step_idx
 
-            # Log progress if requested
-            if log_file and iteration_count[0] % log_every == 0:
-                grad_norm = np.linalg.norm(grad.flatten())
-                with open(log_file, 'a') as f:
-                    if is_pimc_energy:
-                        f.write(f"{iteration_count[0]},{energy},{E_sp},{E_int},{grad_norm}\n")
-                    else:
-                        f.write(f"{iteration_count[0]},{energy},{grad_norm}\n")
+        def save_snapshot(step_idx, xyz_coords, force=False):
+            if trajectory_handle is None:
+                return
+            if not force:
+                if save_trajectory_every <= 0 or (step_idx - initial_iteration) % save_trajectory_every != 0:
+                    return
+            path_snapshot = create_path_snapshot(xyz_coords)
+            write_pimc_worldline_config(trajectory_handle, path_snapshot, step_idx)
+            trajectory_handle.flush()
+            last_snapshot_step[0] = step_idx
 
-            # Save trajectory snapshot if requested
-            if trajectory_handle and iteration_count[0] % save_trajectory_every == 0:
-                path_snapshot = create_path_snapshot(xyz)
-                write_pimc_worldline_config(trajectory_handle, path_snapshot, iteration_count[0])
-                trajectory_handle.flush()  # Ensure data is written
+        # --- Functions passed to SciPy -----------------------------------------
+        def objective_function(x_flat):
+            raw_eval_counter[0] += 1
+            x_flat_np = np.asarray(x_flat)
+            refresh_pending_eval(x_flat_np)
+            return pending_eval['energy'], pending_eval['grad']
 
-            return float(energy), np.array(grad.flatten())
+        def step_callback(xk):
+            """Executed by SciPy each time it executes a new iterate step."""
+            xk_np = np.asarray(xk)
+            if pending_eval['x'] is None or not np.allclose(pending_eval['x'], xk_np):
+                refresh_pending_eval(xk_np)
 
-        def convergence_callback(xk):
-            """Check custom convergence criteria: abs(delta_E) < tol AND grad_norm < gtol"""
-            if convergence_state['prev_energy'] is not None:
-                energy_change = abs(convergence_state['current_energy'] - convergence_state['prev_energy'])
-                grad_norm = convergence_state['grad_norm']
+            iteration_id = iterations_completed[0] + 1
+            iterations_completed[0] = iteration_id
 
-                # Check both criteria
-                energy_converged = energy_change < energy_change_tol
-                gradient_converged = grad_norm < gtol
+            prev_energy = current_step['energy']
 
-                if energy_converged and gradient_converged:
-                    convergence_state['converged'] = True
-                    convergence_state['convergence_message'] = (
-                        f"CUSTOM CONVERGENCE: Energy change {energy_change:.6e} < {energy_change_tol:.6e} "
-                        f"AND gradient norm {grad_norm:.6e} < {gtol:.6e}"
-                    )
-                    raise ConvergenceReached()
+            current_step['energy'] = pending_eval['energy']
+            current_step['grad_norm'] = pending_eval['grad_norm']
+            current_step['xyz'] = pending_eval['xyz']
+            if is_pimc_energy:
+                current_step['E_sp'] = pending_eval['E_sp']
+                current_step['E_int'] = pending_eval['E_int']
 
-        xyz_flat = xyz_initial.flatten()
+            log_iteration(
+                iteration_id,
+                current_step['energy'],
+                current_step['grad_norm'],
+                current_step.get('E_sp'),
+                current_step.get('E_int')
+            )
+
+            save_snapshot(iteration_id, current_step['xyz'])
+
+            energy_change = abs(current_step['energy'] - prev_energy)
+            if energy_change < energy_change_tol and current_step['grad_norm'] < gtol:
+                current_step['converged'] = True
+                current_step['convergence_message'] = (
+                    f"CUSTOM CONVERGENCE: Energy change {energy_change:.6e} < {energy_change_tol:.6e} "
+                    f"AND gradient norm {current_step['grad_norm']:.6e} < {gtol:.6e}"
+                )
+                raise ConvergenceReached()
+
+        x0_flat = np.asarray(xyz_initial).reshape(-1)
 
         # Detect trust-region methods that require Hessian information
         trust_region_methods = ['trust-ncg', 'trust-krylov', 'trust-exact', 'trust-constr']
         uses_trust_region = method in trust_region_methods
 
-        # Setup optimization options (method-specific)
         options = {
             'maxiter': maxiter,
             'disp': True      # Enable verbose output
@@ -540,52 +619,72 @@ def find_local_minimum(
         # Run optimization with convergence callback
         minimize_kwargs = {
             'fun': objective_function,
-            'x0': xyz_flat,
+            'x0': x0_flat,
             'method': method,
             'jac': True,
             'options': options,
-            'callback': convergence_callback
+            'callback': step_callback
         }
 
-        # Add hessp for trust-region methods
         if hessp_callback is not None:
             minimize_kwargs['hessp'] = hessp_callback
+
+        # --- Execute SciPy minimize -------------------------------------------
+        custom_result_used = False
 
         try:
             results = optimize.minimize(**minimize_kwargs)
         except ConvergenceReached:
-            # Custom convergence reached - create results dict manually
-            minimized_xyz = xyz_flat.reshape(xyz_initial.shape)  # Current state
-            minimized_energy = convergence_state['current_energy']
+            custom_result_used = True
 
             class CustomResult:
                 def __init__(self):
-                    self.x = current_xyz[0]
-                    self.fun = minimized_energy
+                    self.x = current_step['xyz'].reshape(-1)
+                    self.fun = current_step['energy']
                     self.success = True
-                    self.message = convergence_state['convergence_message']
-                    self.nfev = iteration_count[0]
-                    self.nit = iteration_count[0]  # Approximate
+                    self.message = current_step['convergence_message']
+                    self.nfev = raw_eval_counter[0]
+                    self.nit = iterations_completed[0] - attempt_start_step
 
             results = CustomResult()
 
-        minimized_xyz = results.x.reshape(xyz_initial.shape)
+        attempt_iterations = iterations_completed[0] - attempt_start_step
+        attempt_evals = raw_eval_counter[0]
+
+        if iterations_completed[0] > last_logged_step[0]:
+            log_iteration(
+                iterations_completed[0],
+                current_step['energy'],
+                current_step['grad_norm'],
+                current_step.get('E_sp'),
+                current_step.get('E_int'),
+                force=True
+            )
+
+        if trajectory_handle and iterations_completed[0] > last_snapshot_step[0]:
+            save_snapshot(iterations_completed[0], current_step['xyz'], force=True)
+
+        if not custom_result_used:
+            results.nfev = attempt_evals
+            results.nit = attempt_iterations
+            results.fun = current_step['energy']
+            results.x = current_step['xyz'].reshape(-1)
+
+        minimized_xyz = results.x.reshape(xyz_shape)
         minimized_energy = results.fun
 
-        # Update cumulative tracking
-        cumulative_nfev += results.nfev
-        cumulative_iterations = iteration_count[0]
+        cumulative_nfev += attempt_evals
+        cumulative_iterations = iterations_completed[0]
 
-        # Write optimization statistics to log file
         if log_file:
             with open(log_file, 'a') as f:
                 f.write("#\n")
                 f.write("# Optimization completed\n")
                 f.write(f"# Success: {results.success}\n")
                 f.write(f"# Message: {results.message}\n")
-                f.write(f"# Scipy iterations (nit): {results.nit}\n")
+                f.write(f"# Completed iterations (nit): {results.nit}\n")
                 f.write(f"# Function evaluations (nfev): {results.nfev}\n")
-                f.write(f"# Final function evaluation number: {iteration_count[0]}\n")
+                f.write(f"# Final step index: {iterations_completed[0]}\n")
                 f.write(f"# Energy at this attempt: {minimized_energy:.6f}\n")
 
         # If saddle escape disabled, stop here

@@ -55,26 +55,40 @@ def main():
 
     print(f"\nConfigurations to minimize: {configs_to_minimize}")
 
-    # System parameters (from test_full_wl)
-    N = 64                    # Number of particles
-    n = 0.0218               # Density in Angstrom^-3
-    T = 1.55                 # Temperature [K]
+    # ====== Input: 
+    # # System parameters (from test_full_wl)
+    # N = 64                   # Number of particles
+    # n = 0.0218               # Density in Angstrom^-3
+    # T = 1.55                 # Temperature [K]
+    # beta = 1/T               # Inverse temperature (reduced units)
+    # hbar = 21.8735/(2*np.pi) # Reduced Planck constant
+    # mass = 1.0               # Helium mass (reduced units)
+
+    # L = (N/n)**(1/3)         # Box length in Angstrom
+    # box = jnp.array([L, L, L])
+    
+    # # Load PIMC configurations
+    # wlfile = 'N64-cycle_large.dat'
+
+    N = 64                   # Number of particles
+    n = 0.02179               # Density in Angstrom^-3
+    T = 2.5                 # Temperature [K]
     beta = 1/T               # Inverse temperature (reduced units)
     hbar = 21.8735/(2*np.pi) # Reduced Planck constant
     mass = 1.0               # Helium mass (reduced units)
 
     L = (N/n)**(1/3)         # Box length in Angstrom
     box = jnp.array([L, L, L])
-
+    
+    # Load PIMC configurations
+    wlfile = 'N64-cycle1.dat'
+    
     print(f"\nSystem Parameters:")
     print(f"  N = {N} particles")
     print(f"  Density = {n:.4f} Å⁻³")
     print(f"  Temperature = {T} K")
     print(f"  Box size = {L:.2f} Å")
     print(f"  β = {beta:.4f}, ℏ = {hbar:.4f}, mass = {mass}")
-
-    # Load PIMC configurations
-    wlfile = 'N64.dat'
     print(f"\nLoading configurations from {wlfile}...")
     paths_dict = load_pimc_worldline_file(wlfile, Lx=L, Ly=L, Lz=L)
 
@@ -169,7 +183,6 @@ def main():
         print(f"\nMinimization settings:")
         print(f"  Log file: {log_file}")
         print(f"  Trajectory file: {trajectory_file}")
-        print(f"  Saving trajectory every 50 iterations")
 
         # Prepare metadata for log file
         metadata = {
@@ -189,15 +202,18 @@ def main():
 
         results = find_local_minimum(
             energy_fn=minimization_energy_fn,
+            method='L-BFGS-B',
             xyz_initial=path.beadCoord,
             log_file=log_file,
-            log_every=100,
+            log_every=1,
             trajectory_file=trajectory_file,
             trajectory_path_template=path_template,
-            save_trajectory_every=100,
-            gtol=1e-3,
-            maxiter=10000,
-            energy_change_tol=1e-2,
+            save_trajectory_every=10,
+            gtol=1e-6,
+            maxiter=200,
+            maxfun=500,
+            energy_change_tol=1e-4,
+            escape_saddles=False,
             initial_iteration=resume_iteration,
             resume_mode=resume_mode,
             metadata=metadata

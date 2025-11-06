@@ -184,7 +184,7 @@ def test_numerical_gradient_consistency():
     # Very small system for numerical test
     xyz = jnp.array([[0.0, 0.0, 0.0],
                      [3.0, 0.0, 0.0]])
-    box_size = jnp.array([10.0, 10.0, 10.0])
+    box_size = jnp.array([100.0, 100.0, 100.0])
 
     displacement_fn, _ = space.periodic(box_size)
     energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)

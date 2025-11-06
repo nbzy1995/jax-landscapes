@@ -290,7 +290,7 @@ def test_local_minimum_pimc(wl_file):
     - Trajectory file saving and loading
     """
     # Load PIMC data
-    box_size_angstrom = 10.0
+    box_size_angstrom = 20.0
     paths_dict = load_pimc_worldline_file(wl_file, Lx=box_size_angstrom, Ly=box_size_angstrom, Lz=box_size_angstrom)
     path = paths_dict[0]
 

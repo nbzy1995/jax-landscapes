@@ -4,6 +4,7 @@ Aziz 1995 potential implementation for Helium interactions using JAX-MD.
 
 # TODO: make all documentation nicer
 
+import numpy as np
 import jax.numpy as jnp
 from jax_md import energy, space, smap, partition
 
@@ -23,6 +24,35 @@ AZIZ_PARAMS = {
     'epsilon': 10.956,  # [kB K]
     'rm': 2.9683,  # Angstrom
 }
+
+
+def _validate_cutoff_against_box(box_size, r_cutoff, context, enforce=True):
+    """
+    Ensure the cutoff radius is compatible with the minimum-image convention: r_cutoff <= 0.5 * min(box_size).
+
+    Args:
+        box_size: Scalar or iterable of box lengths.
+        r_cutoff: Cutoff radius.
+        context: Name of the calling function (for error messages).
+        enforce: If False, skip validation (for legacy tests).
+    """
+    if not enforce or box_size is None:
+        return
+
+    box = np.asarray(box_size, dtype=float)
+    if box.ndim == 0:
+        box = np.repeat(box, 3)
+
+    min_box = float(np.min(box))
+
+    max_allowed = 0.5 * min_box
+    if r_cutoff > max_allowed + 1e-9:
+        raise ValueError(
+            f"{context}: cutoff {r_cutoff:.4f} Å exceeds half of the "
+            f"smallest box length ({max_allowed:.4f} Å). "
+            "Increase the simulation cell or reduce the cutoff."
+        )
+
 
 def aziz_1995(r, **kwargs):
     """
@@ -64,7 +94,16 @@ def build_energy_fn_aziz_1995_no_neighborlist(
     displacement_or_metric,
     r_cutoff=13.6, 
     r_sw=13.6*0.9,
+    box_size=None,
+    enforce_cutoff=True,
     **kwargs): 
+
+    _validate_cutoff_against_box(
+        box_size,
+        r_cutoff,
+        "build_energy_fn_aziz_1995_no_neighborlist",
+        enforce=enforce_cutoff
+    )
 
     r_cutoff = jnp.array(r_cutoff) 
     r_sw = jnp.array(r_sw) # switching distance
@@ -84,7 +123,15 @@ def build_energy_fn_aziz_1995_neighborlist(
     r_sw=13.6*0.9,  # switching distance
     dr_threshold=0.5,  # buffer size for neighbor list
     format=partition.OrderedSparse,
+    enforce_cutoff=True,
     **kwargs): 
+
+    _validate_cutoff_against_box(
+        box_size,
+        r_cutoff,
+        "build_energy_fn_aziz_1995_neighborlist",
+        enforce=enforce_cutoff
+    )
 
     r_cutoff = jnp.array(r_cutoff, jnp.float64) 
     r_sw = jnp.array(r_sw, jnp.float64) 

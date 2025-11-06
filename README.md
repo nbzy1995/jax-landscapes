@@ -69,16 +69,14 @@ print(f"Lowest eigenvalues: {result['eigenvalues'][:6]}")
 ## Core Modules
 
 ### `energy_fun.py`
-- Compute total energy of the system.
+Compute total energy of the system.
 - Force fields include: Aziz 1995 potential
 - Easy to define new force fields.
 
 ### `pimc_energy.py`
 PIMC total energy (U_RP) following Ceperley 1995.
 
-- `build_pimc_energy_fn(displacement_fn, potential_fn)` - Ring polymer energy
-
-Supports closed worldline configurations with boson permutation at each time slice.
+- Supports closed worldline configurations with boson permutation at each time slice.
 
 ### `local_minima.py`
 Gradient-based local minimization using scipy with JAX gradients.
@@ -111,11 +109,6 @@ pytest --cov=jax_landscape          # With coverage
 ```
 
 ### Test Coverage
-
-- **Energy functions** (✓✓): Energy/gradient accuracy (< 1e-8 error), with/without neighbor lists, N=6 and N=500
-    - **PIMC energy** (✓✓): Free particle validation, N=64 Aziz system comparison
-- **Local minimization** (✓✓): 4-property validation (zero gradient, energy decrease, local stability, Hessian PSD), saddle escape, trajectory I/O
-- **Hessian analysis** (✓✓): Numerical consistency, eigenvalue/eigenvector verification, harmonic oscillator test
 
 See [TEST_COVERAGE.md](TEST_COVERAGE.md) for detailed coverage matrix.
 

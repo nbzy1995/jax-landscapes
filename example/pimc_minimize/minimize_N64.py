@@ -57,22 +57,9 @@ def main():
 
     # ====== Input: 
     # # System parameters (from test_full_wl)
-    # N = 64                   # Number of particles
-    # n = 0.0218               # Density in Angstrom^-3
-    # T = 1.55                 # Temperature [K]
-    # beta = 1/T               # Inverse temperature (reduced units)
-    # hbar = 21.8735/(2*np.pi) # Reduced Planck constant
-    # mass = 1.0               # Helium mass (reduced units)
-
-    # L = (N/n)**(1/3)         # Box length in Angstrom
-    # box = jnp.array([L, L, L])
-    
-    # # Load PIMC configurations
-    # wlfile = 'N64-cycle_large.dat'
-
     N = 64                   # Number of particles
-    n = 0.02179               # Density in Angstrom^-3
-    T = 2.5                 # Temperature [K]
+    n = 0.0218               # Density in Angstrom^-3
+    T = 1.55                 # Temperature [K]
     beta = 1/T               # Inverse temperature (reduced units)
     hbar = 21.8735/(2*np.pi) # Reduced Planck constant
     mass = 1.0               # Helium mass (reduced units)
@@ -81,7 +68,20 @@ def main():
     box = jnp.array([L, L, L])
     
     # Load PIMC configurations
-    wlfile = 'N64-cycle1.dat'
+    wlfile = 'N64-cycle_large.dat'
+
+    # N = 64                   # Number of particles
+    # n = 0.02179               # Density in Angstrom^-3
+    # T = 2.5                 # Temperature [K]
+    # beta = 1/T               # Inverse temperature (reduced units)
+    # hbar = 21.8735/(2*np.pi) # Reduced Planck constant
+    # mass = 1.0               # Helium mass (reduced units)
+
+    # L = (N/n)**(1/3)         # Box length in Angstrom
+    # box = jnp.array([L, L, L])
+    
+    # # Load PIMC configurations
+    # wlfile = 'N64-cycle1.dat'
     
     print(f"\nSystem Parameters:")
     print(f"  N = {N} particles")
@@ -107,7 +107,7 @@ def main():
     # Build energy functions
     print(f"\nBuilding energy functions...")
     displacement_fn, _ = space.periodic(box)
-    classical_energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)
+    classical_energy_fn = build_energy_fn_aziz_1995_no_neighborlist(displacement_fn,r_cutoff=7.0,r_sw = 6.3)
     pimc_energy_fn = build_pimc_energy_fn(displacement_fn, classical_energy_fn)
 
     # Setup output files
@@ -202,7 +202,7 @@ def main():
 
         results = find_local_minimum(
             energy_fn=minimization_energy_fn,
-            method='L-BFGS-B',
+            method='trust-ncg',
             xyz_initial=path.beadCoord,
             log_file=log_file,
             log_every=1,
@@ -210,8 +210,8 @@ def main():
             trajectory_path_template=path_template,
             save_trajectory_every=10,
             gtol=1e-6,
-            maxiter=200,
-            maxfun=500,
+            maxiter=10000,
+            maxfun=100000,
             energy_change_tol=1e-4,
             escape_saddles=False,
             initial_iteration=resume_iteration,

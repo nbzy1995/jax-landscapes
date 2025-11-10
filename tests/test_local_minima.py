@@ -280,6 +280,7 @@ def test_local_minimum_classical_no_neighborlist(data_file):
 @pytest.mark.parametrize("wl_file", [
     'tests/test_data/N2-Nbeads3-cycle1.dat',
     'tests/test_data/N2-Nbeads3-cycle2.dat',
+    'tests/test_data/N2-Nbeads100-cycle2.dat',
 ])
 def test_local_minimum_pimc(wl_file):
     """

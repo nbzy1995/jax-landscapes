@@ -165,4 +165,4 @@ cython_debug/
 *.code-workspace
 .devcontainer/
 tests/tmp/
-example/**/*.dat
+example/**/output/*.dat

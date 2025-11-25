@@ -99,7 +99,7 @@ def test_aziz_to_N64_adrian():
     #  energy [E] in kB K
     #  mass [m] in Helium mass kg
     # unless otherwise specified.
-    
+
     # System parameters for this particular wl file
 
     N = 64     #
@@ -107,7 +107,7 @@ def test_aziz_to_N64_adrian():
     T = 1.55   # temperature [K]
 
     beta = 1/T # reduced units.
-    hbar = 21.8735/(2*np.pi)
+    hbar = 21.8735/(2*np.pi) # reduced units w.r.t Helium units.
     mass = 1
 
     L = (N/n)**(1/3)  # box length in Angstrom
@@ -148,3 +148,78 @@ def test_aziz_to_N64_adrian():
 
     assert jnp.isclose(res['E_qm'], ref_Eqm, rtol=1e-6)
     assert jnp.isclose(res['E_int'], ref_Eint, rtol=1e-6)
+
+
+def test_aziz_to_N64_openmm():
+    wlfile = 'tests/test_data/N64-cycle1.conf0.wl.dat'
+    pos_file = 'tests/test_data/N64-cycle1.conf0.pos'
+    openmm_energy_file = (
+        'example/pimc_He_minimize/compare_openmm/openmm_output/min_energy.csv'
+    )
+
+    # System parameters taken from in_pars.txt / OpenMM script
+    box_size = 14.32103
+    T = 2.5
+    beta = 1 / T
+    hbar = 21.8735/(2*np.pi)
+    mass = 4.0026
+    r_cutoff = 7.0
+    r_sw = 6.3
+
+    # Load connectivity from the worldline file, but bead coordinates from the
+    # .pos file (the input used by the OpenMM script).
+    path = load_pimc_worldline_file(
+        wlfile, Lx=box_size, Ly=box_size, Lz=box_size
+    )[0]
+    M, N, _ = path.beadCoord.shape
+
+    pos_data = np.loadtxt(pos_file)
+    assert pos_data.shape == (M * N, 3)
+    bead_coords = pos_data.reshape(N, M, 3).transpose(1, 0, 2)
+
+    class PosPath:
+        def __init__(self, beadCoord, next_indices):
+            self.beadCoord = beadCoord
+            self.next = next_indices
+
+    pos_path = PosPath(jnp.asarray(bead_coords), jnp.asarray(path.next))
+
+    box = jnp.array([box_size, box_size, box_size])
+    displacement_fn, _ = space.periodic(box)
+    potential_fn = build_energy_fn_aziz_1995_no_neighborlist(
+        displacement_fn,
+        r_cutoff=r_cutoff,
+        r_sw=r_sw,
+        box_size=box
+    )
+    pimc_fn = build_pimc_energy_fn(displacement_fn, potential_fn)
+    res = pimc_fn(pos_path, beta=beta, hbar=hbar, mass=mass)
+
+    # OpenMM reference energies (kJ/mol)
+    openmm_data = np.genfromtxt(openmm_energy_file, delimiter=',', names=True)
+    E0_kj = float(openmm_data['E_0'])/ M
+    Esp0_kj = float(openmm_data['Esp_0'])/ M
+
+    # Unit conversions
+    KJmol_to_KBK = 120.2722922542  # project standard
+    BOLTZ_SI = 1.38064852e-23
+    AVOGADRO_OMM = 6.02214086e23
+    HBAR_SI = 1.054571817e-34
+    AMU_TO_KG = 1.66053906660e-27
+
+    # OpenMM uses physical β (1/kB T) and J units; spring term needs an extra
+    # rescale to our reduced (kB·K, Å) convention.
+    kjmol_to_kbk_openmm = 1000.0 / (AVOGADRO_OMM * BOLTZ_SI)
+    spring_rescale = (
+        BOLTZ_SI * AMU_TO_KG * (hbar / HBAR_SI) ** 2 * 1e-20
+    )
+
+    expected_E_int = (E0_kj - Esp0_kj) * KJmol_to_KBK 
+    expected_E_sp = Esp0_kj * kjmol_to_kbk_openmm / spring_rescale
+
+    np.testing.assert_allclose(
+        np.asarray(res['E_int']), expected_E_int, atol=1e-3
+    )
+    np.testing.assert_allclose(
+        np.asarray(res['E_sp']), expected_E_sp, atol=1e-3
+    )

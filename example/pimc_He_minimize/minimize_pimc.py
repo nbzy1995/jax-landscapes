@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument('--box-size', type=float, required=True, help='Box size in Angstroms')
     parser.add_argument('--T', type=float, required=True, help='Temperature in Kelvin')
     parser.add_argument('--mass', type=float, default=4.0026, help='Particle mass (default: 4.0026 for He-4)')
-    parser.add_argument('--hbar', type=float, default=7.638, help='Reduced Planck constant (default: 7.638)')
+    parser.add_argument('--hbar', type=float, default=3.4812756477, help='Reduced Planck constant (default: 21.8735/(2*pi) = 3.4812756477)')
     parser.add_argument('--configs', type=int, nargs='+', default=[0], help='Configuration indices to minimize')
     parser.add_argument('--save-every', type=int, default=10, help='Save trajectory every N iterations (default: 10)')
     parser.add_argument('--maxiter', type=int, default=10000, help='Maximum iterations (default: 10000)')

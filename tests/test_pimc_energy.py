@@ -153,9 +153,6 @@ def test_aziz_to_N64_adrian():
 def test_aziz_to_N64_openmm():
     wlfile = 'tests/test_data/N64-cycle1.conf0.wl.dat'
     pos_file = 'tests/test_data/N64-cycle1.conf0.pos'
-    openmm_energy_file = (
-        'example/pimc_He_minimize/compare_openmm/openmm_output/min_energy.csv'
-    )
 
     # System parameters taken from in_pars.txt / OpenMM script
     box_size = 14.32103
@@ -165,6 +162,7 @@ def test_aziz_to_N64_openmm():
     mass = 4.0026
     r_cutoff = 7.0
     r_sw = 6.3
+    KJmol_to_KBK = 120.2722922542  # project standard
 
     # Load connectivity from the worldline file, but bead coordinates from the
     # .pos file (the input used by the OpenMM script).
@@ -195,31 +193,34 @@ def test_aziz_to_N64_openmm():
     pimc_fn = build_pimc_energy_fn(displacement_fn, potential_fn)
     res = pimc_fn(pos_path, beta=beta, hbar=hbar, mass=mass)
 
-    # OpenMM reference energies (kJ/mol)
-    openmm_data = np.genfromtxt(openmm_energy_file, delimiter=',', names=True)
-    E0_kj = float(openmm_data['E_0'])/ M
-    Esp0_kj = float(openmm_data['Esp_0'])/ M
+    # OpenMM reference energies (kJ/mol) copied from min_energy.csv
+    E0_kj = 18020.520816038388 / M
+    Esp0_kj = 19126.897438318378 / M
 
-    # Unit conversions
-    KJmol_to_KBK = 120.2722922542  # project standard
+    # Unit conversions and spring rescale (OpenMM uses physical units)
     BOLTZ_SI = 1.38064852e-23
     AVOGADRO_OMM = 6.02214086e23
     HBAR_SI = 1.054571817e-34
     AMU_TO_KG = 1.66053906660e-27
 
-    # OpenMM uses physical β (1/kB T) and J units; spring term needs an extra
-    # rescale to our reduced (kB·K, Å) convention.
     kjmol_to_kbk_openmm = 1000.0 / (AVOGADRO_OMM * BOLTZ_SI)
     spring_rescale = (
         BOLTZ_SI * AMU_TO_KG * (hbar / HBAR_SI) ** 2 * 1e-20
     )
 
-    expected_E_int = (E0_kj - Esp0_kj) * KJmol_to_KBK 
+    expected_E_int = (E0_kj - Esp0_kj) * KJmol_to_KBK
     expected_E_sp = Esp0_kj * kjmol_to_kbk_openmm / spring_rescale
 
+    res_E_int = float(res['E_int'])
+    res_E_sp = float(res['E_sp'])
+
+    print("\nOpenMM vs JAX (kB·K):")
+    print(f"  E_int  JAX={res_E_int:.6f}  OpenMM={expected_E_int:.6f}  diff={res_E_int - expected_E_int:.6e}")
+    print(f"  E_sp   JAX={res_E_sp:.6f}  OpenMM={expected_E_sp:.6f}  diff={res_E_sp - expected_E_sp:.6e}")
+
     np.testing.assert_allclose(
-        np.asarray(res['E_int']), expected_E_int, atol=1e-3
+        res_E_int, expected_E_int, atol=1e-3
     )
     np.testing.assert_allclose(
-        np.asarray(res['E_sp']), expected_E_sp, atol=1e-3
+        res_E_sp, expected_E_sp, atol=1e-3
     )

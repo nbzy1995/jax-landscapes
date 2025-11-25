@@ -1,13 +1,14 @@
 #!/bin/bash
-# Run PIMC minimization for N2_cycle2_w1_true example
+# Run PIMC minimization for N2_cycle2_w1 example
 #
-# System: N=2 Helium atoms, 2-cycle (exchange), TRUE winding number 1
+# System: N=2 Helium atoms, 2-cycle (exchange), winding number 1
+# The worldline wraps the box once total (each particle crosses half the box)
 
 cd ..
 
 python minimize_pimc.py \
-    N2_cycle2_w1_true/input \
-    N2_cycle2_w1_true/output \
+    N2_cycle2_w1/input \
+    N2_cycle2_w1/output \
     --N 2 \
     --box-size 20.0 \
     --T 1.0 \

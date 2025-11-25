@@ -1,0 +1,8 @@
+Temp_Bath       2.5        # kelvin
+
+Nparticle       64
+Nbeads          100
+
+Box_length      14.321030   # angstrom
+
+Platform        Reference

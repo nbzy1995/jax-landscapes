@@ -99,7 +99,10 @@ class Path:
             self.prev[m,n,1] = int(line[7])     # particle idx of the prev bead connected to bead [m,n]
             self.next[m,n,0] = int(line[8])     # time slice idx of the next bead connected to bead [m,n]
             self.next[m,n,1] = int(line[9])     # particle idx of the next bead connected to bead [m,n]
-  
+
+        # Validate time slice contiguity
+        self._validate_time_slice_contiguity()
+
         # Compute cycle information        
         self.cycleIndex = -1* np.ones([self.numTimeSlices,self.numParticles],int) # store the cycle index which each bead belongs to
         self.cycleSizeDist = np.array([], int) # store the size of each cycle, with index i corresponding to cycleIndex = i
@@ -156,6 +159,34 @@ class Path:
 
             # ----
             # TODO: check that it is indeed closed cycle. throw error if not. This means the wl file has wrong info about closedness.
+
+    def _validate_time_slice_contiguity(self):
+        """
+        Validate that all beads follow contiguous time slice ordering.
+
+        For each bead at time slice m, its next bead must be at time slice (m+1) % M.
+        This ensures proper temporal ordering regardless of particle permutations.
+
+        Raises:
+            ValueError: If any bead has non-contiguous time slice connectivity
+        """
+        M = self.numTimeSlices
+
+        for m in range(M):
+            for n in range(self.numParticles):
+                next_m, next_n = self.next[m, n]
+                expected_next_m = (m + 1) % M
+
+                if next_m != expected_next_m:
+                    prev_m, prev_n = self.prev[m, n]
+                    raise ValueError(
+                        f"Non-contiguous time slice connectivity at bead (m={m}, n={n}):\n"
+                        f"  Next bead: (m={next_m}, n={next_n}), expected m={expected_next_m}\n"
+                        f"  Prev bead: (m={prev_m}, n={prev_n}), expected m={(m-1)%M}\n"
+                        f"  Total time slices: {M}\n"
+                        f"PIMC worldlines must maintain temporal contiguity: "
+                        f"each bead at slice m connects to slice (m+1) mod M."
+                    )
 
 
 def write_pimc_worldline_config(file_handle, path, config_number):

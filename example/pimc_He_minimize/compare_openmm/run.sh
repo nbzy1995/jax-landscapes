@@ -31,9 +31,10 @@ python minimize_pimd_He_openmm8.py \
 conda deactivate
 source ../../../.venv/bin/activate
 
+# using reduced units [Angstrom, mass_He, K kB]
 python ../minimize_pimc.py . jax_output \
     --N 64 --box-size 14.321030 --T 2.5 \
-    --mass 4.0026 --hbar 3.4812756477 \
+    --mass 1.0 --hbar 3.4812756477 \
     --configs 0 --save-every 100 --maxiter 50000 --escape-saddle
 
 # Step 4: Compare results

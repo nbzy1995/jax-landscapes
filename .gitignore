@@ -165,4 +165,5 @@ cython_debug/
 *.code-workspace
 .devcontainer/
 tests/tmp/
-example/**/output/*.dat
+**/output/
+**/jax_output/

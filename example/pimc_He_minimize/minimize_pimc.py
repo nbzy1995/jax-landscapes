@@ -6,10 +6,10 @@ This script performs energy minimization on PIMC configurations from worldline f
 System parameters are passed via command line arguments.
 
 Usage:
-    python minimize_pimc.py <input_dir> <output_dir> [options]
+    python minimize_pimc.py <input_file> <output_dir> [options]
 
 Arguments:
-    input_dir       Directory containing input worldline file (*.dat)
+    input_file      Input worldline file (*.dat)
     output_dir      Directory for output files
 
 Options:
@@ -21,11 +21,11 @@ Options:
     --configs       Configuration indices to minimize (default: 0)
                     Example: --configs 0 1 2
 
-Output files (in output_dir):
-    - minimized.wl.dat: minimized worldline configurations
-    - minimized.est.dat: initial and final energies
-    - conf{i}.log: energy log for configuration i
-    - conf{i}.trajectory.dat: minimization trajectory for configuration i
+Output files (in output_dir, per input_file):
+    - <stem>.minimized.wl.dat: minimized worldline configurations
+    - <stem>.minimized.est.dat: initial and final energies
+    - <stem>_conf{i}.log: energy log for configuration i
+    - <stem>_conf{i}.trajectory.dat: minimization trajectory for configuration i
 """
 import sys
 import os
@@ -58,14 +58,26 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument('input_dir', help='Input directory containing worldline file')
+    parser.add_argument('input_file', help='Input worldline file (*.dat)')
     parser.add_argument('output_dir', help='Output directory for results')
     parser.add_argument('--N', type=int, required=True, help='Number of particles')
     parser.add_argument('--box-size', type=float, required=True, help='Box size in Angstroms')
     parser.add_argument('--T', type=float, required=True, help='Temperature in Kelvin')
     parser.add_argument('--mass', type=float, default=4.0026, help='Particle mass (default: 4.0026 for He-4)')
-    parser.add_argument('--hbar', type=float, default=3.4812756477, help='Reduced Planck constant (default: 21.8735/(2*pi) = 3.4812756477)')
-    parser.add_argument('--configs', type=int, nargs='+', default=[0], help='Configuration indices to minimize')
+    parser.add_argument(
+        '--hbar',
+        type=float,
+        default=3.4812756477,
+        help='Reduced Planck constant (default: 21.8735/(2*pi) = '
+        '3.4812756477)',
+    )
+    parser.add_argument(
+        '--configs',
+        type=int,
+        nargs='+',
+        default=[0],
+        help='Configuration indices to minimize',
+    )
     parser.add_argument('--save-every', type=int, default=10, help='Save trajectory every N iterations (default: 10)')
     parser.add_argument('--maxiter', type=int, default=10000, help='Maximum iterations (default: 10000)')
     parser.add_argument('--escape-saddles', action='store_true', help='Enable saddle point escape mechanism (default: False)')
@@ -98,15 +110,11 @@ def main():
     print(f"  Box size = {box_size:.2f} Å")
     print(f"  β = {beta:.4f}, ℏ = {hbar:.4f}, mass = {mass}")
 
-    # Find input worldline file
-    input_files = [f for f in os.listdir(args.input_dir) if f.endswith('.dat')]
-    if len(input_files) == 0:
-        raise FileNotFoundError(f"No .dat files found in {args.input_dir}")
-    if len(input_files) > 1:
-        print(f"\nWarning: Multiple .dat files found in {args.input_dir}")
-        print(f"Using: {input_files[0]}")
+    # Input worldline file (no ambiguity: always a single file)
+    wlfile = os.path.abspath(args.input_file)
+    if not os.path.exists(wlfile):
+        raise FileNotFoundError(f"Input worldline file not found: {wlfile}")
 
-    wlfile = os.path.join(args.input_dir, input_files[0])
     print(f"\nLoading configurations from {wlfile}...")
     paths_dict = load_pimc_worldline_file(wlfile, Lx=box_size, Ly=box_size, Lz=box_size)
 
@@ -131,13 +139,21 @@ def main():
     # Setup output directory and files
     os.makedirs(args.output_dir, exist_ok=True)
 
-    minimized_wl_file = os.path.join(args.output_dir, 'minimized.wl.dat')
-    estimator_file = os.path.join(args.output_dir, 'minimized.est.dat')
+    # Derive a base name from the input file so that multiple input
+    # configurations can share the same output directory without conflicts.
+    input_stem = os.path.splitext(os.path.basename(wlfile))[0]
 
-    print(f"\nOutput files:")
+    minimized_wl_file = os.path.join(
+        args.output_dir, f'{input_stem}.minimized.wl.dat'
+    )
+    estimator_file = os.path.join(
+        args.output_dir, f'{input_stem}.minimized.est.dat'
+    )
+
+    print(f"\nOutput files (per input worldline):")
     print(f"  Directory: {args.output_dir}")
-    print(f"  Minimized worldline: minimized.wl.dat")
-    print(f"  Estimator data: minimized.est.dat")
+    print(f"  Minimized worldline: {os.path.basename(minimized_wl_file)}")
+    print(f"  Estimator data: {os.path.basename(estimator_file)}")
 
     # Initialize output files
     wl_handle = open(minimized_wl_file, 'w')
@@ -157,9 +173,13 @@ def main():
 
         original_path = paths_dict[config_idx]
 
-        # Setup per-config output files
-        log_file = os.path.join(args.output_dir, f'conf{config_idx}.log')
-        trajectory_file = os.path.join(args.output_dir, f'conf{config_idx}.trajectory.dat')
+        # Setup per-config output files, tagged by input_stem
+        log_file = os.path.join(
+            args.output_dir, f'{input_stem}_conf{config_idx}.log'
+        )
+        trajectory_file = os.path.join(
+            args.output_dir, f'{input_stem}_conf{config_idx}.trajectory.dat'
+        )
 
         # Check for resume
         resume_path, resume_iteration = read_last_config_from_trajectory(
@@ -210,7 +230,8 @@ def main():
 
         results = find_local_minimum(
             energy_fn=minimization_energy_fn,
-            method='trust-ncg',
+            # method='trust-ncg',
+            method='L-BFGS-B',
             xyz_initial=path.beadCoord,
             log_file=log_file,
             log_every=1,
@@ -288,11 +309,11 @@ def main():
     print(f"Total configurations processed: {len(configs_to_minimize)}")
     print(f"Total time: {total_time:.1f} seconds")
     print(f"\nOutput files in {args.output_dir}:")
-    print(f"  - minimized.wl.dat")
-    print(f"  - minimized.est.dat")
+    print(f"  - {os.path.basename(minimized_wl_file)}")
+    print(f"  - {os.path.basename(estimator_file)}")
     for config_idx in configs_to_minimize:
-        print(f"  - conf{config_idx}.log")
-        print(f"  - conf{config_idx}.trajectory.dat")
+        print(f"  - {input_stem}_conf{config_idx}.log")
+        print(f"  - {input_stem}_conf{config_idx}.trajectory.dat")
 
 
 if __name__ == "__main__":

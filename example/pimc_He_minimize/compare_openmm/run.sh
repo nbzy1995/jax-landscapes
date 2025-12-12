@@ -35,7 +35,7 @@ source ../../../.venv/bin/activate
 python ../minimize_pimc.py . jax_output \
     --N 64 --box-size 14.321030 --T 2.5 \
     --mass 1.0 --hbar 3.4812756477 \
-    --configs 0 --save-every 100 --maxiter 50000 --escape-saddle
+    --configs 0 --save-every 100 --maxiter 50000
 
 # Step 4: Compare results
 

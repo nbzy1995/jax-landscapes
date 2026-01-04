@@ -166,4 +166,5 @@ cython_debug/
 .devcontainer/
 tests/tmp/
 **/output/
-**/jax_output/
+example/**/jax_output/
+example/**/openmm_output/

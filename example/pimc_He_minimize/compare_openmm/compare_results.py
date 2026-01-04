@@ -45,7 +45,7 @@ except Exception as e:
 # Load JAX results
 print("Loading JAX results...")
 try:
-    jax_df = pd.read_csv('jax_output/conf0.log', comment='#')
+    jax_df = pd.read_csv('jax_output/N64-cycle1.conf0.wl_conf0.log', comment='#')
 
     # Initial (first row) and final (last row)
     jax_E0 = float(jax_df.iloc[0]['Energy(Urp)'])
@@ -55,7 +55,7 @@ try:
     jax_Esp_min = float(jax_df.iloc[-1]['E_sp'])
     jax_Eint_min = float(jax_df.iloc[-1]['E_int'])
 
-    print(f"  ✓ Loaded from jax_output/conf0.log")
+    print(f"  ✓ Loaded from jax_output/N64-cycle1.conf0.wl_conf0.log")
 except Exception as e:
     print(f"  ✗ Failed: {e}")
     sys.exit(1)
@@ -104,7 +104,7 @@ try:
 
     sys.path.insert(0, '/Users/Yang/Documents/WorkSpace/jax-landscape')
     from jax_landscape.io.pimc import load_pimc_worldline_file
-    jax_paths = load_pimc_worldline_file('jax_output/conf0.trajectory.dat')
+    jax_paths = load_pimc_worldline_file('jax_output/N64-cycle1.conf0.wl_conf0.trajectory.dat')
     jax_path = jax_paths[max(jax_paths.keys())]
 
     # Reshape JAX to match OpenMM format

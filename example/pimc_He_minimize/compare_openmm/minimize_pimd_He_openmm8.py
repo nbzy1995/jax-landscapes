@@ -357,7 +357,7 @@ print("\n\n    Minimizing    \n\n")
 results = optimize.minimize(target_function, xyz_0, method='L-BFGS-B', jac = True, options=dict(maxiter=50000,disp=True, maxfun=100000, gtol=1e-8)) 
 
 
-# %% 
+# %%
 print("\nProcessing Results ...")
 
 ## Minimized coordinates

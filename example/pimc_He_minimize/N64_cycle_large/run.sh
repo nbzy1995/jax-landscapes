@@ -16,4 +16,4 @@ python minimize_pimc.py \
     --hbar 3.481 \
     --configs 0 \
     --save-every 10 \
-    --maxiter 10000
+    --maxiter 100000

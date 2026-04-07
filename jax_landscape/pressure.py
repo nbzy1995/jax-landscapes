@@ -208,6 +208,42 @@ def compute_pressure_config(positions, next_slice, next_ptcl,
     return P_ideal, P_spring, P_virial
 
 
+# ── Correlated error analysis ──────────────────────────────────────────
+
+def _correlated_error(x):
+    """Compute correlated standard error using integrated autocorrelation time.
+
+    Uses Sokal's automatic windowing (positive initial sequence).
+
+    Returns (tau_int, sigma_corr).
+    """
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if n < 4:
+        return 1.0, float(x.std(ddof=1) / np.sqrt(n))
+
+    y = x - x.mean()
+    c0 = np.dot(y, y) / n
+    if c0 == 0:
+        return 1.0, 0.0
+
+    # ACF via FFT
+    fft_y = np.fft.rfft(y, n=2 * n)
+    acf_full = np.fft.irfft(fft_y * np.conj(fft_y))[:n] / (c0 * n)
+
+    # Integrated autocorrelation time (positive initial sequence)
+    tau_int = 0.5
+    for lag in range(1, n):
+        if acf_full[lag] <= 0:
+            break
+        tau_int += acf_full[lag]
+
+    naive_err = np.std(x, ddof=1) / np.sqrt(n)
+    corr_err = naive_err * np.sqrt(2 * tau_int)
+
+    return float(tau_int), float(corr_err)
+
+
 # ── High-level interface ────────────────────────────────────────────────
 
 def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
@@ -303,9 +339,16 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
     P_spring_per_config = comps[:, 1] * K_A3_TO_BAR
     P_virial_per_config = comps[:, 2] * K_A3_TO_BAR
 
+    # Error analysis: correlated (ACF-based) and naive
+    P_bar_arr = P_totals * K_A3_TO_BAR
+    naive_err = float(P_bar_arr.std(ddof=1) / np.sqrt(n_cfg))
+    tau_int, corr_err = _correlated_error(P_bar_arr)
+
     return {
         'P_mean_bar': float(P_totals.mean() * K_A3_TO_BAR),
-        'P_err_bar': float(P_totals.std() / np.sqrt(n_cfg) * K_A3_TO_BAR),
+        'P_err_bar': corr_err,
+        'P_err_naive_bar': naive_err,
+        'P_tau_int': tau_int,
         'P_tail_bar': float(P_tail * K_A3_TO_BAR),
         'P_total_bar': float((P_totals.mean() + P_tail) * K_A3_TO_BAR),
         'n_configs': n_cfg,

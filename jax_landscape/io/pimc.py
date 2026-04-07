@@ -8,10 +8,16 @@ from __future__ import annotations
 from typing import Dict, Any
 import logging
 import numpy as np
-import jax.numpy as jnp
 
 
-def load_pimc_worldline_file(fileName: str, Lx=None, Ly=None, Lz=None) -> Dict[int, 'Path']:
+def load_pimc_worldline_file(
+    fileName: str,
+    Lx=None,
+    Ly=None,
+    Lz=None,
+    config_ids=None,
+    skip_invalid: bool = False,
+) -> Dict[int, 'Path']:
     """
     Load a pimc output worldline file ("ce-wl-*.dat") and return a dictionary of Path objects.
 
@@ -19,6 +25,8 @@ def load_pimc_worldline_file(fileName: str, Lx=None, Ly=None, Lz=None) -> Dict[i
         fileName: Path to the worldline file
         Lx, Ly, Lz: Optional box dimensions (Angstroms). If not provided, Path objects
                     will have None for box dimensions.
+        config_ids: Optional set/list of configuration numbers to load.
+        skip_invalid: If True, skip configs that fail Path validation.
 
     Returns:
         Dictionary mapping configuration number to Path object: {config_number: Path}
@@ -37,7 +45,12 @@ def load_pimc_worldline_file(fileName: str, Lx=None, Ly=None, Lz=None) -> Dict[i
             cfg_id = int(parts[-1])  # Extract configuration number
         elif 'END_CONFIG' in line:
             if cfg_id is not None and len(data) > 0:
-                paths_dict[cfg_id] = Path(data, Lx=Lx, Ly=Ly, Lz=Lz)
+                if config_ids is None or cfg_id in config_ids:
+                    try:
+                        paths_dict[cfg_id] = Path(data, Lx=Lx, Ly=Ly, Lz=Lz)
+                    except ValueError:
+                        if not skip_invalid:
+                            raise
             data = []
         elif line and line[0] == '#':
             continue

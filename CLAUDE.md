@@ -30,7 +30,9 @@ Run tests in parallel: `pytest -n auto`
 
 ### Core Modules
 
-- `jax_landscape/energy_fun.py`: Aziz 1995 potential implementation with/without neighbor lists
+- `jax_landscape/potentials/aziz.py`: **Single source of truth** for the Aziz He-He pair potential. Supports years 1979 (HFDHE2), 1987, and 1995 (HFD-B3-FCI1). Provides `V(r)`, `dVdr` (via `jax.grad`), vectorized variants, and analytic tail corrections (`tail_V`, `tail_pressure`). All parameters match the C++ engine (`programs/pimc/src/potential.cpp`).
+- `jax_landscape/energy_fun.py`: Energy function factories using JAX-MD. Generic factory `build_energy_fn_aziz()` supports all Aziz years with configurable cutoff/switching. Legacy wrappers `build_energy_fn_aziz_1995_*` preserved for backward compatibility.
+- `jax_landscape/pressure.py`: Primitive thermodynamic pressure estimator from PIMC worldline configurations (Tuckerman 2023, Eq. 12.3.24). Includes worldline parser, per-config pressure computation, and high-level `compute_pressure_from_run()`.
 - `jax_landscape/pimc_energy.py`: PIMC total energy (U_RP) for closed worldline configurations
 - `jax_landscape/local_minima.py`: Local minimization using scipy.optimize with JAX gradients
 - `jax_landscape/io/pimc.py`: Loader/writer for PIMC worldline files (`ce-wl-*.dat`)
@@ -87,9 +89,10 @@ jax.config.update("jax_default_dtype_bits", "64")
 
 Energy functions are created via factory functions that return JAX-jittable energy functions:
 
-1. `build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)` - Direct pair summation
-2. `build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)` - Returns `(neighbor_fn, energy_fn)` tuple
-3. `build_pimc_energy_fn(displacement_fn, potential_energy_fn)` - PIMC ring-polymer energy
+1. `build_energy_fn_aziz(displacement_fn, year=1979, ...)` - Generic factory (preferred). Set `use_neighborlist=True` for neighbor list variant.
+2. `build_energy_fn_aziz_1995_no_neighborlist(displacement_fn)` - Legacy wrapper (Aziz 1995 only)
+3. `build_energy_fn_aziz_1995_neighborlist(displacement_fn, box_size)` - Legacy wrapper, returns `(neighbor_fn, energy_fn)`
+4. `build_pimc_energy_fn(displacement_fn, potential_energy_fn)` - PIMC ring-polymer energy
 
 ### PIMC Worldline Structure
 

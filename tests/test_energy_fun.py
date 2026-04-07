@@ -7,7 +7,13 @@ import jax
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_default_dtype_bits", "64")
 
-from jax_landscape.energy_fun import build_energy_fn_aziz_1995_neighborlist, build_energy_fn_aziz_1995_no_neighborlist
+from jax_landscape.energy_fun import (
+    build_energy_fn_aziz_1995_neighborlist,
+    build_energy_fn_aziz_1995_no_neighborlist,
+    build_energy_fn_aziz,
+    aziz_1995,
+)
+from jax_landscape.potentials.aziz import V
 
 
 nm_to_Angstrom = 10.0
@@ -73,3 +79,47 @@ def test_energy_grad(data_file):
     assert jnp.allclose(grad_no_nl, expected_grad, rtol=1e-8), "Gradients should match reference data"
     assert jnp.allclose(grad_nl, expected_grad, rtol=1e-8), "Gradients should match reference data"
     assert jnp.allclose(grad_no_nl, grad_nl, rtol=1e-8), "Gradient methods should agree with float64"
+
+
+# ── New tests for generic factory and backward compatibility ─────────────
+
+def test_generic_factory_matches_1995_factory():
+    """build_energy_fn_aziz(year=1995) matches the legacy 1995 factory."""
+    data = load_test_data('tests/test_data/aziz1995-N6-Nbeads1.json')
+    R = data['R'] * nm_to_Angstrom
+    box_size = data['box'] * nm_to_Angstrom
+
+    displacement, _ = space.periodic(box_size)
+
+    e_legacy = build_energy_fn_aziz_1995_no_neighborlist(displacement)
+    e_generic = build_energy_fn_aziz(displacement, year=1995)
+
+    assert jnp.isclose(e_legacy(R), e_generic(R), rtol=1e-14)
+
+
+def test_aziz_1979_factory():
+    """build_energy_fn_aziz(year=1979) runs without error."""
+    box_size = jnp.array([20.0, 20.0, 20.0])
+    displacement, _ = space.periodic(box_size)
+
+    e_fn = build_energy_fn_aziz(displacement, year=1979, r_cutoff=10.0)
+    R = jnp.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=jnp.float64)
+    E = e_fn(R)
+    assert jnp.isfinite(E)
+
+
+def test_switching_disabled():
+    """With r_sw=r_cutoff, energy matches bare potential within cutoff."""
+    box_size = jnp.array([20.0, 20.0, 20.0])
+    displacement, _ = space.periodic(box_size)
+
+    r_cutoff = 9.0
+    e_fn = build_energy_fn_aziz(
+        displacement, year=1995, r_cutoff=r_cutoff, r_sw=r_cutoff)
+
+    # Two particles at r = 3.0 (well within cutoff)
+    R = jnp.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]], dtype=jnp.float64)
+    E_switched = float(e_fn(R))
+    E_bare = float(V(jnp.float64(3.0), year=1995))
+
+    assert E_switched == pytest.approx(E_bare, rel=1e-10)

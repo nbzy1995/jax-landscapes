@@ -1,40 +1,21 @@
 """
-Aziz 1995 potential implementation for Helium interactions using JAX-MD.
-"""
+Energy functions for Helium interactions using JAX-MD.
 
-# TODO: make all documentation nicer
+The bare pair potential lives in ``jax_landscape.potentials.aziz``.
+This module applies switching/cutoff via JAX-MD and builds energy
+functions suitable for minimization.
+"""
 
 import numpy as np
 import jax.numpy as jnp
 from jax_md import energy, space, smap, partition
 
-
-
-# ---------------------------------
-# The two-body potential function for the Aziz 1995 potential
-# NOTE: the output and input has the specified units.
-AZIZ_PARAMS = {
-    'A_star': 1.86924404e5,
-    'alpha_star': 10.5717543,
-    'beta_star': -2.07758779,
-    'c6': 1.35186623,
-    'c8': 0.41495143,
-    'c10': 0.17151143,
-    'D': 1.438,
-    'epsilon': 10.956,  # [kB K]
-    'rm': 2.9683,  # Angstrom
-}
+from .potentials.aziz import V as _aziz_V, AZIZ_PARAMS
 
 
 def _validate_cutoff_against_box(box_size, r_cutoff, context, enforce=True):
     """
     Ensure the cutoff radius is compatible with the minimum-image convention: r_cutoff <= 0.5 * min(box_size).
-
-    Args:
-        box_size: Scalar or iterable of box lengths.
-        r_cutoff: Cutoff radius.
-        context: Name of the calling function (for error messages).
-        enforce: If False, skip validation (for legacy tests).
     """
     if not enforce or box_size is None:
         return
@@ -54,99 +35,119 @@ def _validate_cutoff_against_box(box_size, r_cutoff, context, enforce=True):
         )
 
 
+# ── Pair potential wrappers (JAX-MD compatible) ──────────────────────────
+
 def aziz_1995(r, **kwargs):
+    """Aziz 1995 pair potential (backward-compatible wrapper)."""
+    return _aziz_V(r, year=1995)
+
+
+def _build_aziz_pair_fn(year=1979):
+    """Return a pair function V(r) for the given Aziz year."""
+    def pair_fn(r, **kwargs):
+        return _aziz_V(r, year=year)
+    return pair_fn
+
+
+# ── Generic factory ──────────────────────────────────────────────────────
+
+def build_energy_fn_aziz(
+    displacement_or_metric,
+    year=1979,
+    r_cutoff=13.6,
+    r_sw=None,
+    box_size=None,
+    enforce_cutoff=True,
+    use_neighborlist=False,
+    dr_threshold=0.5,
+    nl_format=partition.OrderedSparse,
+    **kwargs):
     """
-    Aziz 1995 potential for Helium two-body interactions, with cutoff.
+    Build a JAX-MD energy function using the Aziz potential.
+
+    Parameters
+    ----------
+    displacement_or_metric : callable
+        JAX-MD displacement function.
+    year : int
+        Aziz parameterization year (1979, 1987, 1995).
+    r_cutoff : float
+        Pair cutoff radius in Angstrom.
+    r_sw : float or None
+        Switching distance. If None, defaults to 0.9 * r_cutoff.
+        Set r_sw = r_cutoff to disable switching (validation mode).
+    box_size : array-like or None
+        Box dimensions for cutoff validation.
+    enforce_cutoff : bool
+        If True, validate r_cutoff <= L/2.
+    use_neighborlist : bool
+        If True, return (neighbor_fn, energy_fn) tuple.
+    dr_threshold : float
+        Neighbor list buffer (only used if use_neighborlist=True).
+    nl_format : partition format
+        Neighbor list format (only used if use_neighborlist=True).
+
+    Returns
+    -------
+    energy_fn or (neighbor_fn, energy_fn)
     """
-    # TODO: will a different way of passing parameters improve performance?
-    A_star = kwargs.get('A_star', AZIZ_PARAMS['A_star'])
-    alpha_star = kwargs.get('alpha_star', AZIZ_PARAMS['alpha_star'])
-    beta_star = kwargs.get('beta_star', AZIZ_PARAMS['beta_star'])
-    c6 = kwargs.get('c6', AZIZ_PARAMS['c6'])
-    c8 = kwargs.get('c8', AZIZ_PARAMS['c8'])
-    c10 = kwargs.get('c10', AZIZ_PARAMS['c10'])
-    D = kwargs.get('D', AZIZ_PARAMS['D'])
-    epsilon = kwargs.get('epsilon', AZIZ_PARAMS['epsilon'])
-    rm = kwargs.get('rm', AZIZ_PARAMS['rm'])
+    if r_sw is None:
+        r_sw = 0.9 * r_cutoff
 
-    r_reduced = r / rm
+    _validate_cutoff_against_box(
+        box_size, r_cutoff,
+        f"build_energy_fn_aziz(year={year})",
+        enforce=enforce_cutoff
+    )
 
-    # Damping function
-    Fx = jnp.where(r_reduced < D,
-                   jnp.exp(-(D / r_reduced - 1.0)**2),
-                   1.0)
+    pair_fn = _build_aziz_pair_fn(year)
+    r_cutoff = jnp.array(r_cutoff, jnp.float64)
+    r_sw = jnp.array(r_sw, jnp.float64)
 
-    # Repulsive term
-    repulsive = A_star * jnp.exp(-alpha_star * r_reduced + beta_star * r_reduced**2)
+    cutoff_pair = energy.multiplicative_isotropic_cutoff(pair_fn, r_sw, r_cutoff)
+    metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-    # Dispersion term
-    r_reduced_inv = 1.0 / r_reduced
-    dispersion = (c6 * r_reduced_inv**6 + 
-                  c8 * r_reduced_inv**8 + 
-                  c10 * r_reduced_inv**10) * Fx
+    if not use_neighborlist:
+        return smap.pair(cutoff_pair, metric)
 
-    return epsilon * (repulsive - dispersion)
+    dr_threshold = jnp.array(dr_threshold, jnp.float64)
+    neighbor_fn = partition.neighbor_list(
+        displacement_or_metric, box_size, r_cutoff,
+        dr_threshold=dr_threshold, format=nl_format)
+    energy_fn = smap.pair_neighbor_list(cutoff_pair, metric)
+    return neighbor_fn, energy_fn
 
 
-# -----------
-# factory for energy function without neighbor list
+# ── Backward-compatible wrappers ─────────────────────────────────────────
+
 def build_energy_fn_aziz_1995_no_neighborlist(
     displacement_or_metric,
-    r_cutoff=13.6, 
+    r_cutoff=13.6,
     r_sw=13.6*0.9,
     box_size=None,
     enforce_cutoff=True,
-    **kwargs): 
-
-    _validate_cutoff_against_box(
-        box_size,
-        r_cutoff,
-        "build_energy_fn_aziz_1995_no_neighborlist",
-        enforce=enforce_cutoff
-    )
-
-    r_cutoff = jnp.array(r_cutoff) 
-    r_sw = jnp.array(r_sw) # switching distance
-
-    energy_fn = smap.pair(
-        energy.multiplicative_isotropic_cutoff(aziz_1995, r_sw, r_cutoff),
-        space.canonicalize_displacement_or_metric(displacement_or_metric)
-    )
-    return energy_fn
+    **kwargs):
+    """Backward-compatible wrapper: Aziz 1995 without neighbor list."""
+    return build_energy_fn_aziz(
+        displacement_or_metric, year=1995,
+        r_cutoff=r_cutoff, r_sw=r_sw,
+        box_size=box_size, enforce_cutoff=enforce_cutoff,
+        use_neighborlist=False)
 
 
-# factory for energy function with neighbor list
 def build_energy_fn_aziz_1995_neighborlist(
     displacement_or_metric,
     box_size,
-    r_cutoff=13.6, 
-    r_sw=13.6*0.9,  # switching distance
-    dr_threshold=0.5,  # buffer size for neighbor list
+    r_cutoff=13.6,
+    r_sw=13.6*0.9,
+    dr_threshold=0.5,
     format=partition.OrderedSparse,
     enforce_cutoff=True,
-    **kwargs): 
-
-    _validate_cutoff_against_box(
-        box_size,
-        r_cutoff,
-        "build_energy_fn_aziz_1995_neighborlist",
-        enforce=enforce_cutoff
-    )
-
-    r_cutoff = jnp.array(r_cutoff, jnp.float64) 
-    r_sw = jnp.array(r_sw, jnp.float64) 
-    dr_threshold = jnp.array(dr_threshold, jnp.float64)
-
-    neighbor_fn = partition.neighbor_list(
-            displacement_or_metric, 
-            box_size, 
-            r_cutoff, 
-            dr_threshold=dr_threshold,
-            format=format)
-
-    energy_fn = smap.pair_neighbor_list(
-        energy.multiplicative_isotropic_cutoff(aziz_1995, r_sw, r_cutoff),
-        space.canonicalize_displacement_or_metric(displacement_or_metric)
-        )
-
-    return neighbor_fn, energy_fn
+    **kwargs):
+    """Backward-compatible wrapper: Aziz 1995 with neighbor list."""
+    return build_energy_fn_aziz(
+        displacement_or_metric, year=1995,
+        r_cutoff=r_cutoff, r_sw=r_sw,
+        box_size=box_size, enforce_cutoff=enforce_cutoff,
+        use_neighborlist=True,
+        dr_threshold=dr_threshold, nl_format=format)

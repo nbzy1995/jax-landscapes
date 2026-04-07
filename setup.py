@@ -5,6 +5,8 @@ setup(
     version='0.1.0',
     packages=find_packages(),
     install_requires=[
+        'jax',
+        'jaxlib',
         'jax-md @ git+https://github.com/nbzy1995/jax-md.git',
     ],
     entry_points={

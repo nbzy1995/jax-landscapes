@@ -31,10 +31,16 @@ K_A3_TO_BAR = 138.065          # 1 K/A^3 = 138.065 bar
 
 # ── dV/dr wrapper (numpy) ───────────────────────────────────────────────
 
-def _dvdr_numpy(r_array, year=1979):
-    """Evaluate dV/dr at an array of r values, returning numpy."""
+def _ensure_jax_f64():
+    """Enable float64 in JAX (idempotent)."""
     import jax
     jax.config.update('jax_enable_x64', True)
+
+_ensure_jax_f64()
+
+
+def _dvdr_numpy(r_array, year=1979):
+    """Evaluate dV/dr at an array of r values, returning numpy."""
     import jax.numpy as jnp
     r_jax = jnp.array(r_array, dtype=jnp.float64)
     return np.asarray(_dVdr_vec_jax(r_jax, year))
@@ -133,28 +139,13 @@ def _try_parse_config(lines, N, M):
 
 # ── Core pressure estimator ─────────────────────────────────────────────
 
-def compute_pair_virial_slice(pos_slice, side, rc2, dvdr_fn):
-    """Compute sum_{i<j} r_ij * v'(r_ij) for one time slice."""
-    N = pos_slice.shape[0]
-
-    diff = pos_slice[:, np.newaxis, :] - pos_slice[np.newaxis, :, :]
-    diff -= side * np.round(diff / side)
-    r2_full = np.sum(diff * diff, axis=2)
-
-    i_idx, j_idx = np.triu_indices(N, k=1)
-    r2_pairs = r2_full[i_idx, j_idx]
-
-    mask = r2_pairs < rc2
-    r_pairs = np.sqrt(r2_pairs[mask])
-
-    dvdr = dvdr_fn(r_pairs)
-    return np.sum(r_pairs * dvdr)
-
-
 def compute_pressure_config(positions, next_slice, next_ptcl,
                             N, M, side, tau, lam, rc, dvdr_fn):
     """
     Compute primitive thermodynamic pressure for one configuration.
+
+    Fully vectorized over time slices: pair distances from all M slices
+    are collected and passed to dvdr_fn in a single call.
 
     Parameters
     ----------
@@ -184,18 +175,30 @@ def compute_pressure_config(positions, next_slice, next_ptcl,
     V = side[0] * side[1] * side[2]
     rc2 = rc * rc
 
-    # Spring term
-    spring_sum = 0.0
-    for k in range(M):
-        pos_next = positions[next_slice[k], next_ptcl[k]]
-        dr = pos_next - positions[k]
-        dr -= side * np.round(dr / side)
-        spring_sum += np.sum(dr * dr)
+    # ── Spring term (vectorized over all slices) ──
+    # Build (M, N, 3) array of next-bead positions using connectivity
+    pos_next = positions[next_slice, next_ptcl]  # (M, N, 3)
+    dr = pos_next - positions
+    dr -= side * np.round(dr / side)
+    spring_sum = np.sum(dr * dr)
 
-    # Pair virial (slice by slice)
-    virial_sum = 0.0
-    for k in range(M):
-        virial_sum += compute_pair_virial_slice(positions[k], side, rc2, dvdr_fn)
+    # ── Pair virial (vectorized over all slices) ──
+    # positions: (M, N, 3) -> pairwise differences for all slices at once
+    # diff[k, i, j, :] = pos[k,i,:] - pos[k,j,:] for upper triangle
+    i_idx, j_idx = np.triu_indices(N, k=1)
+    # (M, n_pairs, 3)
+    diff = positions[:, i_idx, :] - positions[:, j_idx, :]
+    diff -= side * np.round(diff / side)
+    r2 = np.sum(diff * diff, axis=2)  # (M, n_pairs)
+
+    mask = r2 < rc2
+    r_within = np.sqrt(r2[mask])  # flat array of all within-cutoff distances
+
+    if r_within.size > 0:
+        dvdr_vals = dvdr_fn(r_within)
+        virial_sum = np.sum(r_within * dvdr_vals)
+    else:
+        virial_sum = 0.0
 
     prefactor = 1.0 / (3.0 * tau * M * V)
     P_ideal = prefactor * 3.0 * N * M
@@ -208,7 +211,7 @@ def compute_pressure_config(positions, next_slice, next_ptcl,
 # ── High-level interface ────────────────────────────────────────────────
 
 def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
-                              year=1979):
+                              year=1979, progress=True):
     """
     Compute pressure from a PIMC run directory.
 
@@ -226,6 +229,8 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
         Skip initial configs (equilibration).
     year : int
         Aziz potential year.
+    progress : bool
+        Print a progress bar to stderr.
 
     Returns
     -------
@@ -236,6 +241,8 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
         n_configs : number of configs processed
         components : dict with P_ideal, P_spring, P_virial means (bar)
     """
+    import sys
+
     params_file = os.path.join(run_dir, "params.json")
     with open(params_file) as pf:
         params = json.load(pf)
@@ -257,13 +264,29 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
     P_totals = []
     P_components = []
 
-    for pos, ns, np_arr in parse_wl_configs(
+    run_label = os.path.basename(run_dir)
+
+    for i, (pos, ns, np_arr) in enumerate(parse_wl_configs(
             wl_files[0], N, M,
-            max_configs=max_configs, skip_configs=skip_configs):
+            max_configs=max_configs, skip_configs=skip_configs)):
         P_id, P_sp, P_vir = compute_pressure_config(
             pos, ns, np_arr, N, M, side, tau, lam, rc, dvdr_fn)
         P_totals.append(P_id + P_sp + P_vir)
         P_components.append((P_id, P_sp, P_vir))
+        if progress:
+            done = i + 1
+            bar_len = 30
+            filled = int(bar_len * done / max_configs)
+            bar = '#' * filled + '-' * (bar_len - filled)
+            p_running = np.mean(P_totals) * K_A3_TO_BAR
+            sys.stderr.write(
+                f"\r    P [{bar}] {done}/{max_configs} "
+                f"({run_label})  P={p_running:.1f} bar")
+            sys.stderr.flush()
+
+    if progress and P_totals:
+        sys.stderr.write('\n')
+        sys.stderr.flush()
 
     if not P_totals:
         raise ValueError(f"No diagonal configs found in {run_dir}")
@@ -273,6 +296,12 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
     n_cfg = len(P_totals)
 
     P_tail = _tail_pressure(rho, rc, year=year)
+
+    # Per-config arrays in bar
+    P_total_per_config = P_totals * K_A3_TO_BAR
+    P_ideal_per_config = comps[:, 0] * K_A3_TO_BAR
+    P_spring_per_config = comps[:, 1] * K_A3_TO_BAR
+    P_virial_per_config = comps[:, 2] * K_A3_TO_BAR
 
     return {
         'P_mean_bar': float(P_totals.mean() * K_A3_TO_BAR),
@@ -284,5 +313,11 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
             'P_ideal_bar': float(comps[:, 0].mean() * K_A3_TO_BAR),
             'P_spring_bar': float(comps[:, 1].mean() * K_A3_TO_BAR),
             'P_virial_bar': float(comps[:, 2].mean() * K_A3_TO_BAR),
+        },
+        'per_config': {
+            'P_total_bar': P_total_per_config,
+            'P_ideal_bar': P_ideal_per_config,
+            'P_spring_bar': P_spring_per_config,
+            'P_virial_bar': P_virial_per_config,
         },
     }

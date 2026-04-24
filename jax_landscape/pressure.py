@@ -244,10 +244,90 @@ def _correlated_error(x):
     return float(tau_int), float(corr_err)
 
 
+def _blocking_error(x, min_blocks=4, plateau_tol=0.05, plateau_window=3):
+    """Flyvbjerg-Petersen blocking analysis for a correlated time series.
+
+    Pairwise block-averages the series until < ``min_blocks`` blocks remain,
+    recording the standard error on the mean at each block size. Returns
+    the error the caller should report and the full curve for diagnostics.
+
+    Reporting rule:
+      * If the last ``plateau_window`` SEMs agree within ``plateau_tol``
+        (relative), report their mean as the plateau error.
+      * Otherwise, report the largest observed block SEM as a conservative
+        lower bound (the curve is still rising — the true SEM is at least
+        this big).
+    In both cases, ``plateau_reached`` tells the caller which branch fired.
+
+    Returns
+    -------
+    dict with keys
+      'err'              : reported SEM (float)
+      'err_lastblock'    : SEM at largest block size (float)
+      'err_naive'        : SEM at block size 1 (float)
+      'plateau_reached'  : bool
+      'block_sizes'      : list of block sizes used
+      'block_sems'       : list of block-SEM values
+      'n_blocks'         : list of block counts per level
+    """
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if n < 4 * min_blocks:
+        sem = float(x.std(ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+        return {
+            "err": sem,
+            "err_lastblock": sem,
+            "err_naive": sem,
+            "plateau_reached": False,
+            "block_sizes": [1],
+            "block_sems": [sem],
+            "n_blocks": [int(n)],
+        }
+
+    sizes, sems, nblocks = [], [], []
+    cur = x.copy()
+    bsize = 1
+    while len(cur) >= min_blocks:
+        sem = float(cur.std(ddof=1) / np.sqrt(len(cur)))
+        sizes.append(bsize); sems.append(sem); nblocks.append(int(len(cur)))
+        # pairwise block average
+        m = (len(cur) // 2) * 2
+        cur = 0.5 * (cur[:m:2] + cur[1:m:2])
+        bsize *= 2
+
+    err_naive = sems[0]
+    err_lastblock = sems[-1]
+
+    # Plateau detection: last `plateau_window` points agree within plateau_tol.
+    plateau = False
+    if len(sems) >= plateau_window:
+        tail = np.asarray(sems[-plateau_window:])
+        if tail.min() > 0 and (tail.max() - tail.min()) / tail.min() <= plateau_tol:
+            plateau = True
+            err_report = float(tail.mean())
+        else:
+            err_report = float(max(sems))
+    else:
+        err_report = float(max(sems))
+
+    # The reported error is at least the naive SEM.
+    err_report = max(err_report, err_naive)
+
+    return {
+        "err": err_report,
+        "err_lastblock": err_lastblock,
+        "err_naive": err_naive,
+        "plateau_reached": plateau,
+        "block_sizes": sizes,
+        "block_sems": sems,
+        "n_blocks": nblocks,
+    }
+
+
 # ── High-level interface ────────────────────────────────────────────────
 
 def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
-                              year=1979, progress=True):
+                              year=1979, progress=True, wl_glob=None):
     """
     Compute pressure from a PIMC run directory.
 
@@ -267,6 +347,9 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
         Aziz potential year.
     progress : bool
         Print a progress bar to stderr.
+    wl_glob : str or None
+        Glob pattern for worldline files. Relative paths resolved against
+        run_dir. Default: OUTPUT/ce-wl-*.dat.
 
     Returns
     -------
@@ -284,18 +367,51 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
         params = json.load(pf)
 
     N = params["N"]
-    M = params["M"]
-    rho = params["rho"]
     tau = params["dt"]
-    side = np.array([params["Lx"], params["Ly"], params["Lz"]])
+    L = params.get("L")
+    Lx = params.get("Lx", L)
+    Ly = params.get("Ly", L)
+    Lz = params.get("Lz", L)
+    side = np.array([Lx, Ly, Lz])
+    rho = params.get("rho", params.get("n", N / (Lx * Ly * Lz)))
     rc = params["potential_cutoff"]
     lam = HBAR2_OVER_2M_HE4
 
     dvdr_fn = lambda r: _dvdr_numpy(r, year=year)
 
-    wl_files = globmod.glob(os.path.join(run_dir, "OUTPUT", "ce-wl-*.dat"))
+    if wl_glob is None:
+        pattern = os.path.join(run_dir, "OUTPUT", "ce-wl-*.dat")
+    elif not os.path.isabs(wl_glob):
+        pattern = os.path.join(run_dir, wl_glob)
+    else:
+        pattern = wl_glob
+    wl_files = sorted(globmod.glob(pattern))
     if not wl_files:
-        raise FileNotFoundError(f"No worldline files in {run_dir}/OUTPUT/")
+        raise FileNotFoundError(f"No worldline files matching {pattern}")
+
+    # M: from params, or auto-detect from the first config in the worldline file
+    M = params.get("M")
+    if M is None:
+        with open(wl_files[0]) as _f:
+            _slices = set()
+            _in = False
+            for _line in _f:
+                if '# START_CONFIG' in _line:
+                    _slices = set()
+                    _in = True
+                elif '# END_CONFIG' in _line:
+                    if _in and _slices:
+                        M = len(_slices)
+                        break
+                    _in = False
+                elif _in and not _line.startswith('#'):
+                    parts = _line.split()
+                    if len(parts) >= 10:
+                        _slices.add(int(parts[0]))
+        if M is None:
+            raise ValueError("Cannot determine M from params.json or worldline data")
+        if progress:
+            print(f"  Auto-detected M={M} from worldline data", file=sys.stderr)
 
     P_totals = []
     P_components = []
@@ -339,15 +455,26 @@ def compute_pressure_from_run(run_dir, max_configs=50, skip_configs=5,
     P_spring_per_config = comps[:, 1] * K_A3_TO_BAR
     P_virial_per_config = comps[:, 2] * K_A3_TO_BAR
 
-    # Error analysis: correlated (ACF-based) and naive
+    # Error analysis: Flyvbjerg-Petersen blocking is the reported error
+    # (P_err_bar). We also keep the naive SEM and the ACF-based tau_int for
+    # diagnostic comparison. If the blocking curve has not plateaued, the
+    # reported error is the maximum observed block SEM (a lower bound on
+    # the true SEM), and `P_err_plateau_reached` is False — callers should
+    # treat the number as "error floor", not as a converged estimate.
     P_bar_arr = P_totals * K_A3_TO_BAR
     naive_err = float(P_bar_arr.std(ddof=1) / np.sqrt(n_cfg))
     tau_int, corr_err = _correlated_error(P_bar_arr)
+    blk = _blocking_error(P_bar_arr)
 
     return {
         'P_mean_bar': float(P_totals.mean() * K_A3_TO_BAR),
-        'P_err_bar': corr_err,
+        'P_err_bar': blk["err"],
         'P_err_naive_bar': naive_err,
+        'P_err_acf_bar': corr_err,
+        'P_err_lastblock_bar': blk["err_lastblock"],
+        'P_err_plateau_reached': bool(blk["plateau_reached"]),
+        'P_block_sizes': blk["block_sizes"],
+        'P_block_sems_bar': blk["block_sems"],
         'P_tau_int': tau_int,
         'P_tail_bar': float(P_tail * K_A3_TO_BAR),
         'P_total_bar': float((P_totals.mean() + P_tail) * K_A3_TO_BAR),

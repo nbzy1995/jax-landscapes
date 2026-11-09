@@ -1,0 +1,46 @@
+OpenMM vs JAX Minimization Comparison
+======================================================================
+
+Note: OpenMM sums over 100 beads, JAX averages → divide OpenMM by 100
+Tolerance: 0.1% relative error
+
+Loading OpenMM results...
+  ✓ Loaded from openmm_output/min_energy.csv
+Loading JAX results...
+  ✓ Loaded from jax_output/N64-cycle1.conf0.wl_conf0.log
+
+======================================================================
+Energy Comparison (all in kB·K)
+======================================================================
+
+INITIAL ENERGIES:
+Total Energy                    OpenMM:      -867.84  JAX:      -867.84  Diff:       0.01  ( 0.001%)  ✓
+Spring Energy (E_sp)            OpenMM:      2508.42  JAX:      2508.42  Diff:       0.01  ( 0.000%)  ✓
+Interaction Energy (E_int)      OpenMM:     -3376.26  JAX:     -3376.26  Diff:       0.00  ( 0.000%)  ✓
+
+FINAL ENERGIES:
+Total Energy                    OpenMM:     -3450.49  JAX:     -3450.49  Diff:       0.00  ( 0.000%)  ✓
+Spring Energy (E_sp)            OpenMM:         0.00  JAX:         0.00  Diff:       0.00  ( 0.000%)  ✓
+Interaction Energy (E_int)      OpenMM:     -3450.49  JAX:     -3450.49  Diff:       0.00  ( 0.000%)  ✓
+
+======================================================================
+Coordinate Comparison
+======================================================================
+
+RMSD: 0.0005 Angstrom
+✓ PASS: Identical minima (RMSD < 0.01 Å)
+
+======================================================================
+SUMMARY
+======================================================================
+
+Initial energies:  ✓ PASS
+Final energies:    ✓ PASS
+Coordinates:       ✓ PASS
+
+✓ VALIDATION PASSED
+
+
+================================================================================
+Done!
+================================================================================

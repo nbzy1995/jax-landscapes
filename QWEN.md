@@ -4,17 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-JAX-based energy landscape analysis toolkit for quantum systems, with a focus on Path Integral Monte Carlo (PIMC) simulations and classical energy calculations. The codebase uses JAX-MD for molecular dynamics primitives and implements the Aziz 1995 potential for Helium interactions.
+General-purpose JAX energy-landscape analysis library. Local minimization,
+saddle-point detection and escape, and Hessian analysis accept user-defined
+differentiable energy functions. Path-integral energy construction and worldline
+I/O extend these tools to molecular systems. Helium with the Aziz 1995 potential
+is a worked example and validation case, not the scope of the library.
 
 ## Environment Setup
 
 Python virtual environment is located at `.venv/` in the project root.
 
-Activate: `source .venv/bin/activate`
-
-Install package in editable mode: `pip install -e .`
-
-Install dev dependencies: `pip install -e ".[dev]"`
+Use `uv sync --frozen --extra dev --extra demo` for the checked environment.
+Add `--extra notebooks` for the existing interactive notebooks.
+Dependencies and package discovery are configured in `pyproject.toml`; `uv.lock`
+records the resolved versions.
 
 ## Testing
 
@@ -34,7 +37,7 @@ Run tests in parallel: `pytest -n auto`
 - `jax_landscape/pimc_energy.py`: PIMC total energy (U_RP) for closed worldline configurations
 - `jax_landscape/local_minima.py`: Local minimization using scipy.optimize with JAX gradients
 - `jax_landscape/io/pimc.py`: Loader/writer for PIMC worldline files (`ce-wl-*.dat`)
-- `jax_landscape/main.py`: CLI entry point supporting classical and PIMC input formats
+- `example/helium_exchange.py`: reproducible two-particle exchange demonstration
 
 ### Examples
 
@@ -43,24 +46,17 @@ Run tests in parallel: `pytest -n auto`
   - Works with both PIMC output and minimization trajectories
   - Requires: plotly, ipywidgets
 
-### External Dependencies
+#### External Dependencies
 
-- JAX-MD: Installed from https://github.com/nbzy1995/jax-md (specified in setup.py)
+- JAX-MD: pinned fork commit in `pyproject.toml`; it supplies the OpenMM-style C2 cutoff.
+- JAX/JAXLIB: 0.4.38. The older fork does not import with JAX 0.9.0.1.
+- See `docs/validation.md` for numerical evidence and the unresolved PIMC fixture.
 
-## Command Line Interface
+## Demonstration
 
-The main entry point is `jax_landscape` (installed via `setup.py`):
-
-```bash
-# Classical energy calculation
-jax_landscape --input_file <path.json> --input_format classical
-
-# PIMC configuration loading
-jax_landscape --input_file <ce-wl-*.dat> --input_format pimc --config_index 0
-
-# With minimization
-jax_landscape --input_file <path> --run_minimize True
-```
+Run `uv run --frozen python example/helium_exchange.py` from the repository root.
+The package has no `jax_landscape.main` module or installed CLI. Use the Python
+API and the example script documented in `README.md`.
 
 ## Unit System
 
@@ -74,7 +70,7 @@ Test data uses nm and kJ/mol, with conversions:
 
 ## JAX Configuration
 
-The codebase requires float64 precision. Both `main.py` and test files set:
+The codebase requires float64 precision. The example and test files set:
 
 ```python
 jax.config.update("jax_enable_x64", True)

@@ -168,3 +168,5 @@ tests/tmp/
 **/output/
 example/**/jax_output/
 example/**/openmm_output/
+
+.scratch/
